@@ -47,6 +47,24 @@ class AppContext:
         stub = StubOCREngine(config=config, logger=logger)
         engines[stub.name()] = stub
 
+        # Google Cloud Vision — optional, registered only when SDK is installed and credentials present
+        try:
+            from .ocr.google_vision import GoogleVisionOCREngine
+
+            gv = GoogleVisionOCREngine(config=config, logger=logger)
+            if gv.is_healthy():
+                engines[gv.name()] = gv
+                logger.debug("[AppContext] Registered engine: google_vision")
+            else:
+                logger.debug(
+                    "[AppContext] google_vision not healthy — skipping registration "
+                    "(install google-cloud-vision and set credentials)"
+                )
+        except ImportError:
+            logger.debug(
+                "[AppContext] google-cloud-vision not installed — google_vision engine unavailable"
+            )
+
         router = EngineRouter(engines=engines)
         logger.debug(f"[AppContext] Registered engines: {', '.join(engines)}")
 

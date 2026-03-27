@@ -1,0 +1,74 @@
+# paku — config.yaml template
+#
+# Copy this file to config.yaml and fill in your values.
+# config.yaml is gitignored — never commit it (contains tokens and API keys).
+#
+# All sections are optional. Paku runs with defaults if a section is absent.
+# Paku does NOT require all sections to be configured — only what you use.
+
+# ─── Core ──────────────────────────────────────────────────────────────────────
+
+paku:
+  log_level: INFO  # DEBUG | INFO | WARNING | ERROR
+
+# ─── Output paths ──────────────────────────────────────────────────────────────
+
+outputs:
+  base_dir: ./output
+  review_queue: ./output/review_queue.json
+  checkpoint: ./output/.paku_checkpoint
+
+# ─── Google Cloud Vision OCR (Phase 0 engine) ──────────────────────────────────
+#
+# Auth: set ONE of the two options below. env var takes priority over api_key.
+#
+# Option 1 (recommended): service account JSON
+#   Set the environment variable before running paku:
+#     export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+#   Leave api_key blank when using this option.
+#
+# Option 2: API key (simpler for personal use)
+#   Create an API key in Google Cloud Console → APIs & Services → Credentials.
+#   Enable "Cloud Vision API" for the key.
+#   Free tier: 1,000 image annotations/month.
+#
+# Install the SDK first:
+#   pip install "paku[ocr]"   or   pip install google-cloud-vision>=3.7
+
+google_vision:
+  api_key: ""  # leave blank if using GOOGLE_APPLICATION_CREDENTIALS env var
+
+# ─── Chandra OCR (deferred — requires CUDA GPU or paid Datalab subscription) ───
+#
+# Revisit after Phase 0 gate is passed and GPU/budget decisions are made.
+
+chandra: {}
+
+# ─── LangExtract / --smart flag ────────────────────────────────────────────────
+#
+# Only used when `paku digest --smart` is passed explicitly.
+# Never invoked in the default path.
+
+langextract:
+  api_key: ""           # Gemini or OpenAI API key
+  model_id: gemini-2.5-flash
+
+# ─── AniList ───────────────────────────────────────────────────────────────────
+#
+# AniList GraphQL is free and requires no auth. These defaults are correct.
+
+anilist:
+  base_url: https://graphql.anilist.co
+  confidence_threshold: 0.8  # Levenshtein ratio minimum for auto-accept
+
+# ─── Notion ────────────────────────────────────────────────────────────────────
+#
+# Required only when using `--push notion` or `paku enrich`.
+# DB IDs: open the DB in Notion → copy the 32-char hex ID from the URL.
+# CSV property headers must exactly match Notion property names (case-sensitive).
+
+notion:
+  token: ""          # Integration token from notion.so/my-integrations
+  anime_db_id: ""    # 32-char Notion DB ID for anime entries
+  url_db_id: ""      # 32-char Notion DB ID for URL entries
+  recipe_db_id: ""   # 32-char Notion DB ID for recipe entries
