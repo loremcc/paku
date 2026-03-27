@@ -1,0 +1,44 @@
+# Sensitive config — never commit
+config.yaml
+
+# Extracted personal data
+output/
+
+# Atomic write temp files
+*.tmp
+
+# Test fixture images (real Instagram screenshots — contain PII)
+tests/fixtures/**/*.png
+tests/fixtures/**/*.jpg
+tests/fixtures/**/*.jpeg
+tests/fixtures/**/*.webp
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+*~
+
+# Claude Code
+CLAUDE.md
+.claudeignore
+.claude/
+docs/claude/
+tasks/
+
+# Claude Code local settings (machine-specific)
+.claude/settings.local.json
