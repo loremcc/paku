@@ -18,10 +18,12 @@ _FEED_CARD_SIGNALS = ("Website", "HuggingFace", "Demo", "GitHub", "Paper")
 
 DOMAIN_PATTERNS = [
     r"github\.com/[\w\-]+/[\w\-\.]+",
+    r"gitlab\.com/[\w\-]+/[\w\-\.]+",
     r"arxiv\.org/(?:abs|pdf)/[\d\.]+",
     r"huggingface\.co/[\w\-]+/[\w\-]+",
     r"npmjs\.com/package/[\w\-@/]+",
     r"pypi\.org/project/[\w\-]+",
+    r"docs\.google\.com/[\w\-/]+",
 ]
 
 INGREDIENT_ANCHORS = [
@@ -165,6 +167,16 @@ def _queue_error_entry(path: Path, reason: str) -> dict:
     }
 
 
+def _review_reason(tier: int) -> str:
+    """Return a human-readable review reason for a given extraction tier."""
+    reasons = {
+        2: "domain-only match — verify target URL",
+        3: "reconstructed from author/repo — verify correctness",
+        4: "name-only extraction — manual URL lookup needed",
+    }
+    return reasons.get(tier, f"tier {tier} — needs review")
+
+
 def process_image(
     image_path: str | Path,
     mode: str = "auto",
@@ -220,7 +232,21 @@ def process_image(
     content_type = classify_content(text, screen_type, mode)
     logger.debug(f"[pipeline] {path.name}: content_type={content_type}")
 
-    return {
+    # --- Extraction dispatch ---
+    extraction_result = None
+
+    if content_type == "url":
+        from .extractors.url import extract as url_extract
+
+        extraction_result = url_extract(
+            ocr_text=text,
+            screenshot_path=str(path),
+            config=config,
+            logger=logger,
+        )
+
+    # --- Build result dict ---
+    result: dict[str, Any] = {
         "screenshot": str(path),
         "screen_type": screen_type,
         "content_type": content_type,
@@ -231,3 +257,39 @@ def process_image(
         "extracted_at": _now_iso(),
         "status": _STATUS_PENDING,
     }
+
+    if extraction_result is not None:
+        result["extraction"] = extraction_result.model_dump()
+        result["status"] = "extracted"
+
+        # Route to review queue if needs_review.
+        if extraction_result.needs_review:
+            review_entry = {
+                "screenshot": str(path),
+                "extractor": extraction_result.extractor,
+                "raw_text_snippet": extraction_result.raw_text_snippet,
+                "attempted_extraction": {
+                    "resolved_url": extraction_result.resolved_url,
+                    "raw_keywords": extraction_result.raw_keywords,
+                },
+                "confidence": extraction_result.confidence,
+                "reason": _review_reason(extraction_result.extraction_tier),
+                "timestamp": _now_iso(),
+            }
+            append_review_queue(review_entry, queue_path)
+
+        # Output fan-out.
+        output_dir = config.get("outputs", {}).get("base_dir", "./output")
+        stem = path.stem
+
+        if "json" in outputs:
+            from .outputs.json_out import write_json
+
+            write_json(result["extraction"], stem, output_dir)
+
+        if "txt" in outputs:
+            from .outputs.txt_out import write_txt
+
+            write_txt(extraction_result.resolved_url, stem, output_dir)
+
+    return result

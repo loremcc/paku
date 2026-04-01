@@ -8,19 +8,19 @@ You feed it an Instagram screenshot. It runs OCR (Google Cloud Vision), figures 
 
 Three extractors, each purpose-built:
 
-- **URL** — regex-matches `github.com`, `arxiv.org`, `huggingface.co` and other domains directly from OCR text. Falls back to keyword-based web search when no URL is visible. Flags search-resolved URLs for manual review.
-- **Anime** — pulls anime/manga titles from Italian and English captions, queries AniList for canonical metadata (title, episodes, genres, score, cover art). Levenshtein ratio gates auto-acceptance vs review queue.
-- **Recipe** — detects ingredient blocks, splits each line into quantity + unit + name (never stored as "100g" — always `{qty: 100, unit: "g"}`).
+- **URL** (complete, v0.2) — 4-tier extraction cascade validated on 17 real screenshots. Regex-matches full URLs (github.com, arxiv.org, etc.), detects non-GitHub domains via curated TLD allowlist, reconstructs GitHub `author/repo` from repo cards, and stubs project-name-only cases for manual review. Handles browser bar truncation (with and without OCR-visible ellipsis), filters social platform URLs, strips noise, and routes uncertain results to the review queue. Phase 1 gate passed: Tier 1 100%, Tier 2-3 71.4%, Tier 4 100%, zero false positives.
+- **Anime** (in progress, v0.3) — pulls anime/manga titles from Italian and English captions, queries AniList for canonical metadata (title, episodes, genres, score, cover art). Levenshtein ratio gates auto-acceptance vs review queue.
+- **Recipe** (planned, v0.4) — detects ingredient blocks, splits each line into quantity + unit + name (never stored as "100g" — always `{qty: 100, unit: "g"}`).
 
 Anything the pipeline isn't confident about lands in `review_queue.json` instead of being silently discarded.
 
 ## Current state
 
-**v0.1 — scaffold + OCR baseline (complete)**
+**v0.3 — Anime extractor (in progress)**
 
-The pipeline runs end-to-end: load image → preprocess → OCR → classify screen type + content type → return structured result. Google Cloud Vision produces real OCR text from all tested Instagram screenshot types. 84 tests pass.
+URL extractor is complete and validated. The pipeline runs end-to-end for URL content: load image, preprocess, OCR, classify, extract URL, write output. 148 tests pass (22 skipped for missing SDK/credentials). Phase 1 gate passed on 2026-04-01.
 
-No extractors are implemented yet. `paku digest` currently returns `status: "pending_extraction"` for every image. URL extractor is next.
+Next up: anime extractor with AniList enrichment.
 
 ## Install
 
@@ -82,7 +82,7 @@ Everything works with defaults except OCR credentials.
 ## Tests
 
 ```bash
-# All tests (84 currently)
+# All tests (148 currently)
 python -m pytest
 
 # With coverage
@@ -99,11 +99,11 @@ Test fixtures go in `tests/fixtures/`. Real screenshots are gitignored — popul
 | Version | What | Status |
 |---------|------|--------|
 | v0.1 | Scaffold + OCR baseline | Done |
-| v0.2 | URL extractor | Next |
-| v0.3 | Anime extractor + AniList | — |
-| v0.4 | Recipe extractor | — |
-| v0.5 | Notion integration | — |
-| v1.0 | Batch processing (3000 screenshots) | — |
+| v0.2 | URL extractor | Done (gate passed) |
+| v0.3 | Anime extractor + AniList | In progress |
+| v0.4 | Recipe extractor | -- |
+| v0.5 | Notion integration | -- |
+| v1.0 | Batch processing (3000 screenshots) | -- |
 
 Each version has an explicit gate — a minimum accuracy threshold measured on real screenshots — that must pass before the next version starts.
 
@@ -112,17 +112,20 @@ Each version has an explicit gate — a minimum accuracy threshold measured on r
 ```
 paku/
   cli.py               # Click commands
-  pipeline.py           # OCR → classify → extract → output
+  pipeline.py           # OCR -> classify -> extract -> output
   config.py             # YAML config loader
   context.py            # Singleton: config + logger + OCR registry
-  models.py             # Pydantic v2: OcrResult, OcrBlock, BoundingBox
+  models.py             # Pydantic v2: OcrResult, ExtractionResult, URLExtractionResult
   ocr/
     base.py             # OCREngine ABC
     stub.py             # Fake engine for tests
     google_vision.py    # Google Cloud Vision (document_text_detection)
     router.py           # light/heavy/auto strategy selection
-  extractors/           # URL, anime, recipe (v0.2+)
-  outputs/              # JSON, TXT, CSV writers (v0.2+)
+  extractors/
+    url.py              # 4-tier URL extraction cascade
+  outputs/
+    json_out.py         # Pretty-printed JSON writer
+    txt_out.py          # One-line text writer
 ```
 
 ## License
