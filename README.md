@@ -9,18 +9,18 @@ You feed it an Instagram screenshot. It runs OCR (Google Cloud Vision), figures 
 Three extractors, each purpose-built:
 
 - **URL** (complete, v0.2) — 4-tier extraction cascade validated on 17 real screenshots. Regex-matches full URLs (github.com, arxiv.org, etc.), detects non-GitHub domains via curated TLD allowlist, reconstructs GitHub `author/repo` from repo cards, and stubs project-name-only cases for manual review. Handles browser bar truncation (with and without OCR-visible ellipsis), filters social platform URLs, strips noise, and routes uncertain results to the review queue. Phase 1 gate passed: Tier 1 100%, Tier 2-3 71.4%, Tier 4 100%, zero false positives.
-- **Anime** (implemented, v0.3 — gate pending) — 10-pattern title extraction cascade with AniList GraphQL enrichment. Strips Instagram UI chrome (15+ filter categories), detects platform context (AniList app, TikTok, Threads), handles multi-title posts (carousels, numbered lists). Levenshtein ratio gates auto-acceptance (>= 0.8) vs review queue. Currently at 57% auto-accept (80% gate threshold) — analysis of 13 queued screenshots pending.
+- **Anime** (complete, v0.3) — 10-pattern title extraction cascade with AniList GraphQL enrichment. Strips Instagram UI chrome (15+ filter categories), detects platform context (AniList app, TikTok, Threads), handles multi-title posts (carousels, numbered lists). Enhanced Levenshtein ratio (substring containment + word-overlap boost) gates auto-acceptance (>= 0.8) vs review queue. Phase 2 gate passed: 30/30 = 100% auto-accepted.
 - **Recipe** (planned, v0.4) — detects ingredient blocks, splits each line into quantity + unit + name (never stored as "100g" — always `{qty: 100, unit: "g"}`).
 
 Anything the pipeline isn't confident about lands in `review_queue.json` instead of being silently discarded.
 
 ## Current state
 
-**v0.3 — Anime extractor (implemented, gate pending)**
+**v0.3 — Anime extractor + AniList (complete)**
 
-Both URL and anime extractors are implemented. The pipeline runs end-to-end for URL and anime content. 262 tests pass (22 skipped for missing SDK/credentials). Phase 1 gate passed (2026-04-01). Phase 2 gate NOT YET PASSED — 17/30 = 57% auto-accepted, threshold is 80%. 13 screenshots routed to review_queue need analysis to determine fixable vs. legitimate review cases.
+URL and anime extractors are both complete. The pipeline runs end-to-end for URL and anime content. 273 tests pass (22 skipped for missing SDK/credentials). Phase 1 gate passed (2026-04-01). Phase 2 gate passed (2026-04-09) — 30/30 = 100% auto-accepted.
 
-Next up: Phase 2 gate analysis and tuning.
+Next up: v0.4 recipe extractor.
 
 ## Install
 
@@ -82,7 +82,7 @@ Everything works with defaults except OCR credentials.
 ## Tests
 
 ```bash
-# All tests (262 currently)
+# All tests (273 currently)
 python -m pytest
 
 # With coverage
@@ -100,7 +100,7 @@ Test fixtures go in `tests/fixtures/`. Real screenshots are gitignored — popul
 |---------|------|--------|
 | v0.1 | Scaffold + OCR baseline | Done |
 | v0.2 | URL extractor | Done (gate passed) |
-| v0.3 | Anime extractor + AniList | Implemented (gate pending: 57%) |
+| v0.3 | Anime extractor + AniList | Done (gate passed) |
 | v0.4 | Recipe extractor | -- |
 | v0.5 | Notion integration | -- |
 | v1.0 | Batch processing (3000 screenshots) | -- |
