@@ -532,9 +532,9 @@ class TestPipelineIntegration:
         assert result["extraction"]["extraction_tier"] == 1
         assert "github.com/chenglou/pretext" in result["extraction"]["resolved_url"]
 
-    def test_non_url_content_stays_pending(self, tmp_path: Path):
-        """Non-url content types should still return pending_extraction."""
-        from unittest.mock import MagicMock
+    def test_anime_mode_produces_extracted_status(self, tmp_path: Path):
+        """Anime mode extracts a result (status=extracted) and routes to review when low confidence."""
+        from unittest.mock import MagicMock, patch
 
         from paku.context import AppContext
         from paku.models import OcrResult
@@ -565,10 +565,12 @@ class TestPipelineIntegration:
 
         from paku.pipeline import process_image
 
-        result = process_image(image_path=img_path, mode="anime")
+        import requests as req_mod
+        with patch("requests.post", side_effect=req_mod.exceptions.ConnectionError("network down")):
+            result = process_image(image_path=img_path, mode="anime")
         assert result is not None
-        assert result["status"] == "pending_extraction"
-        assert "extraction" not in result
+        assert result["status"] == "extracted"
+        assert "extraction" in result
 
     def test_needs_review_writes_to_queue(self, tmp_path: Path):
         """Tier 2/3/4 results with needs_review should write to review_queue."""

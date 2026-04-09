@@ -78,4 +78,5 @@ def digest(path: Path, mode: str, smart: bool, outputs: tuple[str, ...]) -> None
 
         click.echo(f"  ocr_text    :")
         for line in result["ocr_text"].splitlines():
-            click.echo(f"    {line}")
+            safe_line = line.encode("ascii", errors="replace").decode("ascii")
+            click.echo(f"    {safe_line}")

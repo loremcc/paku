@@ -157,6 +157,39 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _anime_review_reason(res: Any) -> str:
+    """Derive review reason from an AnimeExtractionResult."""
+    if getattr(res, "levenshtein_ratio", None) is None:
+        if not getattr(res, "raw_title", ""):
+            return "no_title_extracted"
+        if getattr(res, "media_source", None) in ("donghua", "western"):
+            return "non_anime_media"
+        return "network_error"
+    ratio = res.levenshtein_ratio
+    if getattr(res, "multi_title_detected", False):
+        return "multi_title_screenshot"
+    if getattr(res, "extraction_context", None) == "discussion":
+        return "discussion_context"
+    if ratio < 0.4:
+        return "no_anilist_match"
+    return f"low_ratio_{ratio:.2f}"
+
+
+def _anime_review_entry(res: Any, path: Path) -> dict:
+    return {
+        "screenshot": str(path),
+        "extractor": "anime",
+        "raw_title": getattr(res, "raw_title", None),
+        "canonical_title": getattr(res, "canonical_title", None),
+        "anilist_id": getattr(res, "anilist_id", None),
+        "levenshtein_ratio": getattr(res, "levenshtein_ratio", None),
+        "title_pattern": getattr(res, "title_pattern", None),
+        "confidence": res.confidence,
+        "reason": _anime_review_reason(res),
+        "timestamp": _now_iso(),
+    }
+
+
 def _queue_error_entry(path: Path, reason: str) -> dict:
     return {
         "screenshot": str(path),
@@ -245,6 +278,24 @@ def process_image(
             logger=logger,
         )
 
+    elif content_type == "anime":
+        from .extractors.anime import extract as anime_extract
+
+        anime_result = anime_extract(
+            ocr_text=text,
+            screenshot_path=str(path),
+            config=config,
+            logger=logger,
+        )
+        if isinstance(anime_result, list):
+            anime_results = anime_result
+        else:
+            anime_results = [anime_result]
+        for res in anime_results:
+            if res.needs_review:
+                append_review_queue(_anime_review_entry(res, path), queue_path)
+        extraction_result = anime_results[0] if anime_results else None
+
     # --- Build result dict ---
     result: dict[str, Any] = {
         "screenshot": str(path),
@@ -262,8 +313,8 @@ def process_image(
         result["extraction"] = extraction_result.model_dump()
         result["status"] = "extracted"
 
-        # Route to review queue if needs_review.
-        if extraction_result.needs_review:
+        # Route to review queue for URL extraction (anime handled its own entries above).
+        if content_type == "url" and extraction_result.needs_review:
             review_entry = {
                 "screenshot": str(path),
                 "extractor": extraction_result.extractor,
@@ -290,6 +341,10 @@ def process_image(
         if "txt" in outputs:
             from .outputs.txt_out import write_txt
 
-            write_txt(extraction_result.resolved_url, stem, output_dir)
+            if content_type == "anime":
+                txt_value = getattr(extraction_result, "canonical_title", None) or getattr(extraction_result, "raw_title", None)
+            else:
+                txt_value = getattr(extraction_result, "resolved_url", None)
+            write_txt(txt_value, stem, output_dir)
 
     return result

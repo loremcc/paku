@@ -50,3 +50,28 @@ class URLExtractionResult(ExtractionResult):
     raw_keywords: str | None = None
     extraction_mode: str = "direct"
     extraction_tier: int  # 1-4
+
+
+class AnimeExtractionResult(ExtractionResult):
+    """Anime extractor output."""
+
+    extractor: str = "anime"
+    raw_title: str  # exactly what was extracted from OCR
+    canonical_title: str | None = None  # AniList english title (or romaji fallback)
+    native_title: str | None = None  # AniList native (Japanese) title
+    romaji: str | None = None  # AniList romaji title
+    media_type: str | None = None  # "ANIME" | "MANGA" | None
+    media_source: str = "unknown"  # "anime" | "manga" | "donghua" | "western" | "anilist_app" | "unknown"
+    episodes: int | None = None
+    status: str | None = None
+    genres: list[str] = Field(default_factory=list)
+    score: float | None = None
+    anilist_id: int | None = None
+    anilist_url: str | None = None
+    cover_image: str | None = None
+    extraction_mode: str = "fast"  # "fast" | "smart" | "anilist_app"
+    title_pattern: str | None = None  # "label" | "quoted" | "numbered" | "year_tagged" | "romaji" | "hashtag" | "italian_signal" | "fallback"
+    extraction_context: str = "recommendation"  # "recommendation" | "discussion"
+    multi_title_detected: bool = False
+    dedup_key: str | None = None  # anilist_id as str, else canonical_title.lower() or raw_title.lower()
+    levenshtein_ratio: float | None = None  # always logged, even for high-confidence matches
