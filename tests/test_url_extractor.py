@@ -276,11 +276,20 @@ class TestTier2:
         result = _tier2(text)
         assert result is None
 
-    def test_github_context_suppression(self):
-        """When 2+ GitHub signals present, Tier 2 skips entirely."""
-        text = "kubecm.cloud\nStars 1.2k\nForks 234\nIssues 12"
+    def test_github_context_suppression_on_github_page(self):
+        """When 2+ GitHub signals AND github.com is present, Tier 2 skips
+        (we're on a GitHub page — let Tier 3 reconstruct author/repo)."""
+        text = "github.com/sunny0826/kubecm\nStars 1.2k\nForks 234\nIssues 12"
         result = _tier2(text)
         assert result is None
+
+    def test_no_github_suppression_threads_post(self):
+        """When 2+ GitHub signals but NO github.com (Threads/Instagram post
+        about a GitHub repo), Tier 2 should still extract the project domain."""
+        text = "kubecm.cloud\nStars 1.2k\nForks 234\nIssues 12"
+        result = _tier2(text)
+        assert result is not None
+        assert "kubecm.cloud" in result.resolved_url
 
     def test_no_github_suppression_without_signals(self):
         """Domain match should work when no GitHub signals present."""
@@ -410,11 +419,20 @@ class TestExtractIntegration:
         assert result.extraction_tier == 2
         assert "openml.org" in result.resolved_url
 
-    def test_tier3_when_github_signals_suppress_tier2(self):
-        text = "kubecm.cloud\nsunny0826 / kubecm\nStars 1.2k\nForks 234\nMIT license"
+    def test_tier3_when_github_page_suppresses_tier2(self):
+        # github.com present but no full URL in browser bar (truncated path) →
+        # Tier 2 suppressed (github.com present) → Tier 3 fires on author/repo pattern
+        text = "github.com\nsunny0826 / kubecm\nStars 1.2k\nForks 234\nMIT license"
         result = extract(text, "IMG.PNG", {}, _LOGGER)
         assert result.extraction_tier == 3
         assert result.resolved_url == "https://github.com/sunny0826/kubecm"
+
+    def test_tier2_threads_post_about_github_repo(self):
+        # No github.com → Threads post context → Tier 2 extracts project domain
+        text = "kubecm.cloud\nsunny0826 / kubecm\nStars 1.2k\nForks 234\nMIT license"
+        result = extract(text, "IMG.PNG", {}, _LOGGER)
+        assert result.extraction_tier == 2
+        assert "kubecm.cloud" in result.resolved_url
 
     def test_tier4_fallback(self):
         text = "Random text with no URLs or domains"
@@ -609,7 +627,6 @@ class TestPipelineIntegration:
         assert result is not None
         assert result["extraction"]["needs_review"] is True
 
-        # review_queue.json should have been written.
         assert queue_path.exists()
         queue = json.loads(queue_path.read_text())
         assert len(queue) == 1

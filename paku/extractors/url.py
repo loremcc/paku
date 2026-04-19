@@ -64,7 +64,7 @@ _ACTION_PROMPTS = ("Add comment", "Reply to", "See translation")
 # Build the TLD alternation for the Tier 2 regex once at import time.
 _TLD_ALT = "|".join(sorted(TLD_ALLOWLIST, key=len, reverse=True))
 _TIER2_DOMAIN_RE = re.compile(
-    rf"\b([a-zA-Z0-9][-a-zA-Z0-9]*\.(?:{_TLD_ALT})(?:/[^\s,)\]\"'<>]*)?)\b"
+    rf"\b([a-zA-Z0-9][-a-zA-Z0-9]+\.(?:{_TLD_ALT})(?:/[^\s,)\]\"'<>]*)?)\b"
 )
 
 # Tier 1 general URL regex.
@@ -272,6 +272,20 @@ def _tier1(cleaned_text: str) -> URLExtractionResult | None:
             # Fall through to Tier 3 which may reconstruct the full URL.
             continue
 
+        # Handle hyphen-broken URLs split across two comment lines.
+        # e.g. "https://github.com/Anil-matcha/Open-\nHighsfield-Al"
+        if url.endswith("-"):
+            line_end = cleaned_text.find("\n", end)
+            if line_end != -1:
+                next_start = line_end + 1
+                next_line_end = cleaned_text.find("\n", next_start)
+                if next_line_end == -1:
+                    next_line_end = len(cleaned_text)
+                next_line = cleaned_text[next_start:next_line_end].strip()
+                cont = re.match(r"^([\w-]+)", next_line)
+                if cont:
+                    url = url + cont.group(1)
+
         snip = _snippet(cleaned_text, start, end)
         return URLExtractionResult(
             confidence=0.9,
@@ -292,8 +306,11 @@ def _tier2(cleaned_text: str) -> URLExtractionResult | None:
     Uses TLD allowlist. Excluded by social blocklist, chrome adjacency,
     and GitHub context suppression (2+ signals → skip entirely to Tier 3).
     """
-    # GitHub context suppression: if 2+ signals, skip Tier 2 entirely.
-    if _count_github_signals(cleaned_text) >= 2:
+    # GitHub context suppression: if 2+ signals AND we're actually on a GitHub
+    # page (github.com in OCR), skip Tier 2 entirely and let Tier 3 reconstruct
+    # the author/repo. Without github.com present, signals come from post text
+    # describing a repo (Threads/Instagram feed) — Tier 2 should still fire.
+    if _count_github_signals(cleaned_text) >= 2 and "github.com" in cleaned_text.lower():
         return None
 
     lines = cleaned_text.splitlines()
@@ -301,6 +318,13 @@ def _tier2(cleaned_text: str) -> URLExtractionResult | None:
     for line_idx, line in enumerate(lines):
         for m in _TIER2_DOMAIN_RE.finditer(line):
             candidate = m.group(1)
+
+            # Reject deep path URLs (raw content/asset URLs, not project pages).
+            # Allow at most domain + 2 path segments (e.g. example.com/a/b).
+            # URLs with 3+ path segments are almost always raw file references,
+            # not the project page the screenshot is about.
+            if len(candidate.split("/")) > 3:
+                continue
 
             # Social blocklist.
             candidate_with_scheme = candidate
@@ -357,6 +381,12 @@ def _tier3(cleaned_text: str) -> URLExtractionResult | None:
         if "." in author:
             continue
 
+        # Reject path segments inside a longer URL.
+        # If the character immediately before the match is '/', the pattern is
+        # a subpath (e.g. /master/assets/logo), not a standalone author/repo.
+        if m.start() > 0 and cleaned_text[m.start() - 1] == "/":
+            continue
+
         # Reject slide indicators.
         full_match_line = cleaned_text[
             max(0, cleaned_text.rfind("\n", 0, m.start()) + 1):
@@ -368,8 +398,10 @@ def _tier3(cleaned_text: str) -> URLExtractionResult | None:
             continue
 
         # Context validation: 500-char window around match, need 2+ signals.
-        window_start = max(0, m.start() - 250)
-        window_end = min(len(cleaned_text), m.end() + 250)
+        # Wider window (500 each side) ensures signals visible elsewhere on the
+        # page (e.g. MIT license below a header) are counted correctly.
+        window_start = max(0, m.start() - 500)
+        window_end = min(len(cleaned_text), m.end() + 500)
         window = cleaned_text[window_start:window_end]
 
         if _count_github_signals(window) < 2:
