@@ -42,3 +42,6 @@ tasks/
 
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
+
+# Gemma 4
+Modelfile.paku

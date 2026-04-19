@@ -44,10 +44,13 @@ class GoogleVisionOCREngine(OCREngine):
         has_key = bool(
             self._config.get("google_vision", {}).get("api_key", "").strip()
         )
-        if not (has_env or has_key):
+        has_file = bool(
+            self._config.get("google_vision", {}).get("credentials_file", "").strip()
+        )
+        if not (has_env or has_key or has_file):
             self._logger.debug(
-                "[google_vision] No credentials found — set GOOGLE_APPLICATION_CREDENTIALS "
-                "or google_vision.api_key in config.yaml"
+                "[google_vision] No credentials found — set GOOGLE_APPLICATION_CREDENTIALS, "
+                "google_vision.credentials_file, or google_vision.api_key in config.yaml"
             )
             return False
 
@@ -104,6 +107,17 @@ class GoogleVisionOCREngine(OCREngine):
         # Env var path: SDK reads GOOGLE_APPLICATION_CREDENTIALS automatically
         if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip():
             return vision_module.ImageAnnotatorClient()
+        # Service account JSON file path from config
+        credentials_file = (
+            self._config.get("google_vision", {}).get("credentials_file", "").strip()
+        )
+        if credentials_file:
+            from google.oauth2 import service_account
+            creds = service_account.Credentials.from_service_account_file(
+                credentials_file,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+            return vision_module.ImageAnnotatorClient(credentials=creds)
         # API key path: explicit client_options
         api_key = self._config.get("google_vision", {}).get("api_key", "").strip()
         return vision_module.ImageAnnotatorClient(client_options={"api_key": api_key})
