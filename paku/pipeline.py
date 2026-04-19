@@ -30,6 +30,9 @@ INGREDIENT_ANCHORS = [
     r"ingredients?:?",
     r"ingredienti:?",
     r"what you(?:\'ll)? need:?",
+    r"ingredientes:?",
+    r"zutaten:?",
+    r"ingr[eé]dients?:?",
 ]
 
 ITALIAN_SIGNALS = [
@@ -296,6 +299,29 @@ def process_image(
                 append_review_queue(_anime_review_entry(res, path), queue_path)
         extraction_result = anime_results[0] if anime_results else None
 
+    elif content_type == "recipe":
+        from .extractors.recipe import extract as recipe_extract
+
+        extraction_result = recipe_extract(
+            ocr_text=text,
+            screenshot_path=str(path),
+            config=config,
+            logger=logger,
+        )
+        if extraction_result.needs_review:
+            append_review_queue(
+                {
+                    "screenshot": str(path),
+                    "extractor": "recipe",
+                    "title": extraction_result.title,
+                    "ingredient_count": len(extraction_result.ingredients),
+                    "confidence": extraction_result.confidence,
+                    "reason": "low_confidence_recipe",
+                    "timestamp": _now_iso(),
+                },
+                queue_path,
+            )
+
     # --- Build result dict ---
     result: dict[str, Any] = {
         "screenshot": str(path),
@@ -343,8 +369,15 @@ def process_image(
 
             if content_type == "anime":
                 txt_value = getattr(extraction_result, "canonical_title", None) or getattr(extraction_result, "raw_title", None)
+            elif content_type == "recipe":
+                txt_value = getattr(extraction_result, "title", None)
             else:
                 txt_value = getattr(extraction_result, "resolved_url", None)
             write_txt(txt_value, stem, output_dir)
+
+        if "csv" in outputs and content_type == "recipe":
+            from .outputs.csv_out import write_csv
+
+            write_csv(result["extraction"].get("ingredients", []), stem, output_dir)
 
     return result

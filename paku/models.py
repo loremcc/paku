@@ -75,3 +75,26 @@ class AnimeExtractionResult(ExtractionResult):
     multi_title_detected: bool = False
     dedup_key: str | None = None  # anilist_id as str, else canonical_title.lower() or raw_title.lower()
     levenshtein_ratio: float | None = None  # always logged, even for high-confidence matches
+
+
+# --- Recipe models (v0.4+) ---
+
+
+class Ingredient(BaseModel):
+    """A single parsed ingredient with quantity/unit always split."""
+
+    name: str
+    quantity: float | None = None
+    unit: str | None = None
+    notes: str | None = None
+
+
+class RecipeExtractionResult(ExtractionResult):
+    """Recipe extractor output."""
+
+    extractor: str = "recipe"
+    title: str | None = None
+    source_account: str | None = None
+    ingredients: list[Ingredient] = Field(default_factory=list)
+    instructions: str | None = None
+    dedup_key: str | None = None  # title.lower().strip(), set by extractor
