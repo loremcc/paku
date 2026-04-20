@@ -88,7 +88,7 @@ class TestAppContextEngineRegistry:
     def test_get_ocr_raises_on_unknown(self):
         ctx = AppContext.instance()
         with pytest.raises(ValueError, match="not registered"):
-            ctx.get_ocr("chandra")
+            ctx.get_ocr("nonexistent_engine")
 
     def test_resolve_engine_by_name(self):
         ctx = AppContext.instance()

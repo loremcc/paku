@@ -294,6 +294,43 @@ def process_image(
             anime_results = anime_result
         else:
             anime_results = [anime_result]
+
+        # Smart re-run: if confidence < 0.4 and --smart is set, re-OCR with Ollama VLM
+        if smart and anime_results and anime_results[0].confidence < 0.4:
+            try:
+                smart_engine = ctx.router.select("smart")
+                # Only re-run if we got the Ollama engine (not a fallback)
+                if smart_engine.name() == "ollama_vlm":
+                    logger.debug(
+                        f"[pipeline] Smart re-run triggered for {path.name} "
+                        f"(confidence={anime_results[0].confidence:.2f})"
+                    )
+                    smart_ocr = smart_engine.extract(image)
+                    smart_text = smart_ocr.raw_text
+                    if smart_text:
+                        smart_screen = classify_screen_type(smart_text)
+                        smart_result = anime_extract(
+                            ocr_text=smart_text,
+                            screenshot_path=str(path),
+                            config=config,
+                            logger=logger,
+                        )
+                        if isinstance(smart_result, list):
+                            anime_results = smart_result
+                        else:
+                            anime_results = [smart_result]
+                        # Stamp extraction_mode on all results from smart path
+                        for res in anime_results:
+                            res.extraction_mode = "smart"
+                        logger.debug(
+                            f"[pipeline] Smart re-run complete: "
+                            f"confidence={anime_results[0].confidence:.2f}"
+                        )
+            except RuntimeError as e:
+                logger.warning(
+                    f"[pipeline] Smart engine unavailable, using fast-path result: {e}"
+                )
+
         for res in anime_results:
             if res.needs_review:
                 append_review_queue(_anime_review_entry(res, path), queue_path)

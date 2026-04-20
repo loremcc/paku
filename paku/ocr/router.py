@@ -14,6 +14,7 @@ class EngineRouter:
     - 'light'  → prefer light engines, fall back to heavy if none available
     - 'heavy'  → prefer heavy engines, fall back to light if none available
     - 'auto'   → prefer heavy if healthy, fall back to light
+    - 'smart'  → ollama_vlm if healthy, else fall back to heavy/light
     """
 
     engines: dict[str, OCREngine]
@@ -38,5 +39,15 @@ class EngineRouter:
             if engine:
                 return engine
             raise RuntimeError(f"No OCR engines available for strategy {strategy!r}.")
+
+        if strategy == "smart":
+            # Prefer ollama_vlm engine; fall back to heavy then light (same as auto)
+            ollama = self.engines.get("ollama_vlm")
+            if ollama and ollama.is_healthy():
+                return ollama
+            engine = self._select_by_kind("heavy") or self._select_by_kind("light")
+            if engine:
+                return engine
+            raise RuntimeError("No OCR engines available for strategy 'smart'.")
 
         raise ValueError(f"Unknown routing strategy: {strategy!r}")

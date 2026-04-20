@@ -24,7 +24,6 @@ DEFAULT_CONFIG: dict = {
         "review_queue": "./output/review_queue.json",
         "checkpoint": "./output/.paku_checkpoint",
     },
-    "chandra": {},
     "langextract": {
         "api_key": "",
         "model_id": "gemini-2.5-flash",

@@ -24,6 +24,10 @@ dev = [
 ocr = [
     "google-cloud-vision>=3.7",
 ]
+smart = [
+    # requests is already a core dependency (AniList client uses it).
+    # This extra exists as a capability marker matching the paku[ocr] pattern.
+]
 
 [project.scripts]
 paku = "paku.cli:cli"

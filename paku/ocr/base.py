@@ -13,7 +13,7 @@ class OCREngine(ABC):
 
     @abstractmethod
     def name(self) -> str:
-        """Unique engine name (e.g. 'stub', 'chandra')."""
+        """Unique engine name (e.g. 'stub', 'google_vision', 'ollama_vlm')."""
         raise NotImplementedError
 
     @abstractmethod

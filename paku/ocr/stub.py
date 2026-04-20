@@ -12,8 +12,7 @@ from ..models import OcrResult
 class StubOCREngine(OCREngine):
     """Fake OCR engine for development and pipeline validation.
 
-    Returns predictable stub text without reading the image. Replace with a
-    real engine (Chandra) once the pipeline plumbing is verified.
+    Returns predictable stub text without reading the image.
     """
 
     def __init__(self, config: dict, logger: logging.Logger) -> None:
@@ -36,5 +35,5 @@ class StubOCREngine(OCREngine):
             ),
             blocks=[],
             language=None,
-            meta={"note": "stub engine — replace with Chandra OCR", "path": str(path_info or "")},
+            meta={"note": "stub engine", "path": str(path_info or "")},
         )

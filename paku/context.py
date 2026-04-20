@@ -65,6 +65,15 @@ class AppContext:
                 "[AppContext] google-cloud-vision not installed — google_vision engine unavailable"
             )
 
+        # Ollama VLM — registered when ollama config section is present.
+        # Health check is lazy (deferred to first is_healthy() call at runtime).
+        if config.get("ollama"):
+            from .ocr.ollama import OllamaVLMEngine
+
+            ollama_engine = OllamaVLMEngine(config=config, logger=logger)
+            engines[ollama_engine.name()] = ollama_engine
+            logger.debug("[AppContext] Registered engine: ollama_vlm (health check deferred)")
+
         router = EngineRouter(engines=engines)
         logger.debug(f"[AppContext] Registered engines: {', '.join(engines)}")
 

@@ -38,11 +38,16 @@ outputs:
 google_vision:
   api_key: ""  # leave blank if using GOOGLE_APPLICATION_CREDENTIALS env var
 
-# ─── Chandra OCR (deferred — requires CUDA GPU or paid Datalab subscription) ───
+# ─── Ollama VLM (--smart flag re-run engine) ──────────────────────────────────
 #
-# Revisit after Phase 0 gate is passed and GPU/budget decisions are made.
+# Used only when `paku digest --smart` is passed AND fast-path confidence < 0.4.
+# Requires a running Ollama server with the custom model loaded.
+# Build the model: ollama create gemma4-paku -f Modelfile.paku
+# No API keys involved — just a LAN IP and model name.
 
-chandra: {}
+ollama:
+  base_url: "http://192.168.1.114:11434"   # remote Ollama host on home network
+  model: "gemma4-paku:latest"               # custom model built from Modelfile.paku
 
 # ─── LangExtract / --smart flag ────────────────────────────────────────────────
 #
