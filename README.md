@@ -145,4 +145,4 @@ paku/
 
 ## License
 
-Personal project. Not currently licensed for external use.
+This project is licensed under the [Apache License, Version 2.0](LICENSE).
