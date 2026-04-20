@@ -99,3 +99,9 @@ Set one of:
 - `google_vision.credentials_file: /path/to/service-account.json` in `config.yaml`
 
 Free tier: 1,000 image annotations/month.
+
+## Ollama VLM Integration (2026-04-20)
+
+Live integration verified against `gemma4-paku:latest` running on `192.168.1.114:11434`. 8 anime fixtures tested through the smart re-run path. Tests are in `tests/test_ocr_ollama.py` (7 tests, mocked `requests`). Live server not required for CI — all tests use mocked responses.
+
+Fallback verified with unreachable host (192.0.2.1) — graceful degradation, no crash, fast-path result returned unchanged.

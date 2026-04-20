@@ -16,9 +16,11 @@ Anything the pipeline isn't confident about lands in `review_queue.json` instead
 
 ## Current state
 
-**v0.4 — Recipe extractor complete, Phase 3 gate PASSED**
+**v0.4 — All three extractors complete + smart re-run engine**
 
-All three extractors are implemented and gate-verified. The pipeline runs end-to-end for URL, anime, and recipe content. 340 tests pass (2 skipped for missing SDK/credentials). Phase 1 gate passed (2026-04-01). Phase 2 gate passed (2026-04-09) — 30/30 = 100% auto-accepted. Phase 3 gate passed (2026-04-19) — 10/10 = 100%.
+All three extractors are implemented and gate-verified. The pipeline runs end-to-end for URL, anime, and recipe content. 347 tests pass (2 skipped for missing SDK/credentials). Phase 1 gate passed (2026-04-01). Phase 2 gate passed (2026-04-09) — 30/30 = 100% auto-accepted. Phase 3 gate passed (2026-04-19) — 10/10 = 100%.
+
+`--smart` flag enables confidence-gated re-run: when fast-path extraction returns confidence < 0.4, the pipeline re-OCRs with a local Ollama VLM (Gemma 4) for richer text and re-extracts. Falls back cleanly if Ollama is unavailable.
 
 Next up: v0.5 Notion integration — CSV generation with exact Notion property headers + SDK enrichment pass for covers, icons, and relations.
 
@@ -33,7 +35,8 @@ pip install -e ".[dev]"
 For real OCR (not the stub engine):
 
 ```bash
-pip install "paku[ocr]"  # adds google-cloud-vision
+pip install "paku[ocr]"    # adds google-cloud-vision
+pip install "paku[smart]"  # enables --smart flag (Ollama VLM re-run)
 ```
 
 Then set credentials — either:
@@ -54,6 +57,9 @@ paku digest ./screenshots/
 # Force a specific extraction mode
 paku digest screenshot.png --mode url
 
+# Smart re-run (re-OCR with Ollama VLM when confidence is low)
+paku digest screenshot.png --mode anime --smart
+
 # Output formats (repeatable)
 paku digest screenshot.png --output json --output txt
 ```
@@ -71,6 +77,10 @@ anilist:
   base_url: "https://graphql.anilist.co"
   confidence_threshold: 0.8
 
+ollama:
+  base_url: "http://192.168.1.114:11434"  # LAN host running Ollama
+  model: "gemma4-paku:latest"             # custom model (see Modelfile.paku)
+
 notion:
   token: ""
   anime_db_id: ""
@@ -78,12 +88,12 @@ notion:
   recipe_db_id: ""
 ```
 
-Everything works with defaults except OCR credentials.
+Everything works with defaults except OCR credentials. The `ollama` section is optional — `--smart` falls back gracefully if Ollama is unavailable.
 
 ## Tests
 
 ```bash
-# All tests (340 currently)
+# All tests (347 currently)
 python -m pytest
 
 # With coverage
@@ -121,7 +131,8 @@ paku/
     base.py             # OCREngine ABC
     stub.py             # Fake engine for tests
     google_vision.py    # Google Cloud Vision (document_text_detection)
-    router.py           # light/heavy/auto strategy selection
+    ollama.py           # OllamaVLMEngine — smart re-run (stream-parsed NDJSON)
+    router.py           # light/heavy/auto/smart strategy selection
   extractors/
     url.py              # 4-tier URL extraction cascade
     anime.py            # 10-pattern title cascade + AniList enrichment
