@@ -16,13 +16,15 @@ Anything the pipeline isn't confident about lands in `review_queue.json` instead
 
 ## Current state
 
-**v0.4 — All three extractors complete + smart re-run engine**
+**v0.5 — Batch processing + anime Notion CSV**
 
-All three extractors are implemented and gate-verified. The pipeline runs end-to-end for URL, anime, and recipe content. 347 tests pass (2 skipped for missing SDK/credentials). Phase 1 gate passed (2026-04-01). Phase 2 gate passed (2026-04-09) — 30/30 = 100% auto-accepted. Phase 3 gate passed (2026-04-19) — 10/10 = 100%.
+All three extractors are implemented and gate-verified. Batch mode is ready — point `paku digest` at a directory and it processes every image, writes a checkpoint after each one, and picks up where it left off if interrupted. 404 tests pass (2 skipped for missing credentials). Phase 1–3 gates all passed.
+
+Batch produces three consolidated outputs: `anime_titles.txt` / `urls.txt` / `recipe_titles.txt` (one entry per line, deduped), plus `anime_notion_import.csv` (9 exact Notion "Full Catalog" property columns, ready to import). Per-image JSON is written throughout.
 
 `--smart` flag enables confidence-gated re-run: when fast-path extraction returns confidence < 0.4, the pipeline re-OCRs with a local Ollama VLM (Gemma 4) for richer text and re-extracts. Falls back cleanly if Ollama is unavailable.
 
-Next up: v0.5 Notion integration — CSV generation with exact Notion property headers + SDK enrichment pass for covers, icons, and relations.
+Gate pending: 3000 screenshots processed in one batch run with no crashes, anime CSV importable into Notion Full Catalog.
 
 ## Install
 
@@ -51,18 +53,30 @@ Google Cloud Vision free tier covers 1,000 images/month.
 # Single image
 paku digest screenshot.png
 
-# Directory (processes all images recursively)
-paku digest ./screenshots/
-
-# Force a specific extraction mode
-paku digest screenshot.png --mode url
+# Single image — force extraction mode + output formats
+paku digest screenshot.png --mode url --output json --output txt
 
 # Smart re-run (re-OCR with Ollama VLM when confidence is low)
 paku digest screenshot.png --mode anime --smart
 
-# Output formats (repeatable)
-paku digest screenshot.png --output json --output txt
+# Batch — directory of images
+paku digest ./screenshots/ --mode anime --output csv --output txt --output json
+
+# Batch — resume interrupted run (default behavior: skips already-processed images)
+paku digest ./screenshots/ --mode anime --output csv --resume
+
+# Batch — start fresh, ignore checkpoint
+paku digest ./screenshots/ --mode anime --output csv --no-resume
+
+# Batch — print breakdown by content type after completion
+paku digest ./screenshots/ --report
 ```
+
+Batch mode writes a `.paku_checkpoint` file in the output directory. Each successfully processed image is recorded there, so `--resume` (the default) skips it on the next run.
+
+Consolidated outputs written after a batch completes:
+- `--output txt` → `anime_titles.txt`, `urls.txt`, `recipe_titles.txt` (one entry per line, deduped, sorted)
+- `--output csv` with `--mode anime` → `anime_notion_import.csv` (9 Notion property columns, deduped by AniList ID)
 
 ## Config
 
@@ -93,7 +107,7 @@ Everything works with defaults except OCR credentials. The `ollama` section is o
 ## Tests
 
 ```bash
-# All tests (347 currently)
+# All tests (404 currently)
 python -m pytest
 
 # With coverage
@@ -113,17 +127,17 @@ Test fixtures go in `tests/fixtures/`. Real screenshots are gitignored — popul
 | v0.2 | URL extractor | Done (gate passed) |
 | v0.3 | Anime extractor + AniList | Done (gate passed) |
 | v0.4 | Recipe extractor | Done (gate passed) |
-| v0.5 | Notion integration | -- |
-| v1.0 | Batch processing (3000 screenshots) | -- |
+| v0.5 | Batch processing + anime Notion CSV | Done — gate pending (3000-screenshot run) |
+| v0.6 | Dashboard | -- |
 
-Each version has an explicit gate — a minimum accuracy threshold measured on real screenshots — that must pass before the next version starts.
+Each version has an explicit gate — a minimum accuracy threshold or throughput test measured on real screenshots — that must pass before the next version starts.
 
 ## Project structure
 
 ```
 paku/
-  cli.py               # Click commands
-  pipeline.py           # OCR -> classify -> extract -> output
+  cli.py               # Click commands (digest: single + batch, --resume/--no-resume, --report)
+  pipeline.py           # OCR -> classify -> extract -> output; process_batch() + BatchReport
   config.py             # YAML config loader
   context.py            # Singleton: config + logger + OCR registry
   models.py             # Pydantic v2: OcrResult, ExtractionResult, URLExtractionResult, AnimeExtractionResult, RecipeExtractionResult, Ingredient
@@ -138,10 +152,14 @@ paku/
     anime.py            # 10-pattern title cascade + AniList enrichment
     recipe.py           # multilingual ingredient block detection + qty/unit split
   outputs/
-    json_out.py         # Pretty-printed JSON writer
-    txt_out.py          # One-line text writer
-    csv_out.py          # Ingredient CSV writer (one row per ingredient)
+    json_out.py         # Pretty-printed JSON writer (per image)
+    txt_out.py          # Per-image text writer + write_batch_txt() (consolidated, deduped)
+    csv_out.py          # Recipe ingredient CSV (per image) + write_anime_csv() (post-batch Notion import)
 ```
+
+## Coming soon
+
+A browser-based dashboard (v0.6) for browsing the extracted collection, uploading new screenshots, and managing watch status — built on the same FastAPI + pipeline backend. No cloud accounts required; runs locally.
 
 ## License
 

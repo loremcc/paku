@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from PIL import Image
 
@@ -124,6 +125,16 @@ def classify_content(ocr_text: str, screen_type: str, mode: str = "auto") -> str
     return "unknown"
 
 
+@dataclasses.dataclass
+class BatchReport:
+    total: int
+    processed: int
+    skipped: int
+    failed: int
+    review_queued: int
+    by_content_type: dict[str, int]
+
+
 def discover_images(root: Path) -> list[Path]:
     """Recursively find all image files under root, sorted by name."""
     if root.is_file():
@@ -133,6 +144,123 @@ def discover_images(root: Path) -> list[Path]:
     return sorted(
         (p for p in root.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS),
         key=lambda p: p.name,
+    )
+
+
+def _load_checkpoint(checkpoint_path: Path) -> set[str]:
+    if not checkpoint_path.exists():
+        return set()
+    return set(checkpoint_path.read_text(encoding="utf-8").splitlines())
+
+
+def _append_checkpoint(checkpoint_path: Path, image_path: str) -> None:
+    existing = _load_checkpoint(checkpoint_path)
+    existing.add(image_path)
+    tmp = checkpoint_path.parent / (checkpoint_path.name + ".tmp")
+    tmp.write_text("\n".join(sorted(existing)) + "\n", encoding="utf-8")
+    os.replace(tmp, checkpoint_path)
+
+
+def process_batch(
+    root: Path,
+    mode: str = "auto",
+    smart: bool = False,
+    outputs: list[str] | None = None,
+    resume: bool = True,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+) -> tuple[BatchReport, list[dict[str, Any]]]:
+    """Process all images under root, with checkpoint/resume and error isolation.
+
+    Returns BatchReport (counts) and list of successful result dicts.
+    "txt" output is stripped from per-image fan-out — callers handle batch consolidation.
+    """
+    from .context import AppContext
+
+    ctx = AppContext.instance()
+    config = ctx.config
+    logger = ctx.logger
+
+    if outputs is None:
+        outputs = []
+
+    queue_path: str = config.get("outputs", {}).get(
+        "review_queue", "./output/review_queue.json"
+    )
+    output_dir = config.get("outputs", {}).get("base_dir", "./output")
+    checkpoint_path = Path(output_dir) / ".paku_checkpoint"
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    images = discover_images(root)
+    total = len(images)
+
+    checkpoint: set[str] = set()
+    if resume:
+        checkpoint = _load_checkpoint(checkpoint_path)
+
+    # txt consolidation is done after batch — skip per-image txt writes
+    batch_outputs = [o for o in outputs if o != "txt"]
+
+    results: list[dict[str, Any]] = []
+    processed = 0
+    skipped = 0
+    failed = 0
+    review_queued = 0
+    by_content_type: dict[str, int] = {}
+
+    for i, img in enumerate(images):
+        if progress_callback is not None:
+            progress_callback(i, total, img.name)
+
+        img_str = str(img)
+        if resume and img_str in checkpoint:
+            skipped += 1
+            continue
+
+        try:
+            result = process_image(
+                image_path=img,
+                mode=mode,
+                smart=smart,
+                outputs=batch_outputs,
+            )
+        except Exception as e:
+            logger.warning(f"[batch] Unhandled error processing {img.name}: {e}")
+            append_review_queue(
+                _queue_error_entry(img, f"batch_error: {e}"), queue_path
+            )
+            failed += 1
+            review_queued += 1
+            continue
+
+        if result is None:
+            failed += 1
+            review_queued += 1
+            continue
+
+        processed += 1
+        content_type = result.get("content_type", "unknown")
+        by_content_type[content_type] = by_content_type.get(content_type, 0) + 1
+
+        extraction = result.get("extraction") or {}
+        if extraction.get("needs_review", False):
+            review_queued += 1
+
+        results.append(result)
+        _append_checkpoint(checkpoint_path, img_str)
+
+    if progress_callback is not None:
+        progress_callback(total, total, "")
+
+    return (
+        BatchReport(
+            total=total,
+            processed=processed,
+            skipped=skipped,
+            failed=failed,
+            review_queued=review_queued,
+            by_content_type=by_content_type,
+        ),
+        results,
     )
 
 

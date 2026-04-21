@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -20,3 +21,19 @@ def write_txt(
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(line + "\n")
     return out_path
+
+
+def write_batch_txt(entries: list[str], output_path: Path) -> Path:
+    """Write batch entries to a single file, one per line, deduped and sorted.
+
+    Uses atomic write: writes to .tmp then os.replace.
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = output_path.parent / (output_path.name + ".tmp")
+
+    deduped = sorted(set(e for e in entries if e))
+    content = "\n".join(deduped) + ("\n" if deduped else "")
+    tmp_path.write_text(content, encoding="utf-8")
+    os.replace(tmp_path, output_path)
+    return output_path
