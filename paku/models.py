@@ -69,6 +69,12 @@ class AnimeExtractionResult(ExtractionResult):
     anilist_id: int | None = None
     anilist_url: str | None = None
     cover_image: str | None = None
+    banner_image: str | None = None
+    media_format: str | None = None  # "TV" | "MOVIE" | "OVA" | "ONA" | "SPECIAL" | "TV_SHORT"
+    source: str | None = None  # adaptation source: "MANGA" | "LIGHT_NOVEL" | "ORIGINAL" | etc.
+    country_of_origin: str | None = None  # "JP" | "KR" | "CN" | etc.
+    debut_year: int | None = None
+    studios: list[str] = Field(default_factory=list)  # animation studios only
     extraction_mode: str = "fast"  # "fast" | "smart" | "anilist_app"
     title_pattern: str | None = None  # "label" | "quoted" | "numbered" | "year_tagged" | "romaji" | "hashtag" | "italian_signal" | "fallback"
     extraction_context: str = "recommendation"  # "recommendation" | "discussion"

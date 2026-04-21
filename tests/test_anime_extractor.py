@@ -1185,3 +1185,150 @@ class TestTrailingPunctuationCleanup:
         result = extract(text, _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
         results = result if isinstance(result, list) else [result]
         assert results[0].canonical_title is not None
+
+
+# --- Expanded AniList field tests (010) ---
+
+
+def _anilist_response_full() -> dict:
+    """AniList response populated with all expanded fields."""
+    return {
+        "data": {
+            "Media": {
+                "id": 16498,
+                "title": {
+                    "english": "Attack on Titan",
+                    "romaji": "Shingeki no Kyojin",
+                    "native": "進撃の巨人",
+                },
+                "type": "ANIME",
+                "format": "TV",
+                "source": "MANGA",
+                "episodes": 25,
+                "status": "FINISHED",
+                "genres": ["Action", "Drama"],
+                "averageScore": 84,
+                "siteUrl": "https://anilist.co/anime/16498",
+                "countryOfOrigin": "JP",
+                "startDate": {"year": 2013},
+                "coverImage": {
+                    "extraLarge": "https://img.anilist.co/cover-xl.jpg",
+                    "large": "https://img.anilist.co/cover-l.jpg",
+                },
+                "bannerImage": "https://img.anilist.co/banner.jpg",
+                "studios": {
+                    "edges": [
+                        {"node": {"name": "Wit Studio", "isAnimationStudio": True}},
+                        {"node": {"name": "Production I.G", "isAnimationStudio": False}},
+                        {"node": {"name": "MAPPA", "isAnimationStudio": True}},
+                    ]
+                },
+            }
+        }
+    }
+
+
+class TestExpandedAniListFields:
+    def test_full_response_populates_new_fields(self):
+        text = "Anime Name: Attack on Titan"
+        mock = MagicMock()
+        mock.json.return_value = _anilist_response_full()
+        mock.raise_for_status = MagicMock()
+        with patch("requests.post", return_value=mock):
+            result = extract(text, _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        assert isinstance(result, AnimeExtractionResult)
+        assert result.media_format == "TV"
+        assert result.source == "MANGA"
+        assert result.country_of_origin == "JP"
+        assert result.debut_year == 2013
+        assert result.banner_image == "https://img.anilist.co/banner.jpg"
+        # extraLarge preferred over large
+        assert result.cover_image == "https://img.anilist.co/cover-xl.jpg"
+        # Only animation studios kept; order preserved
+        assert result.studios == ["Wit Studio", "MAPPA"]
+
+    def test_extra_large_falls_back_to_large(self):
+        """If extraLarge is absent, cover_image must fall back to large."""
+        resp = _anilist_response_full()
+        del resp["data"]["Media"]["coverImage"]["extraLarge"]
+        mock = MagicMock()
+        mock.json.return_value = resp
+        mock.raise_for_status = MagicMock()
+        text = "Anime Name: Attack on Titan"
+        with patch("requests.post", return_value=mock):
+            result = extract(text, _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        assert result.cover_image == "https://img.anilist.co/cover-l.jpg"
+
+    def test_missing_optional_fields_use_defaults(self):
+        """When AniList omits new fields, model defaults must hold (None / empty list)."""
+        resp = {
+            "data": {
+                "Media": {
+                    "id": 999,
+                    "title": {"english": "Some Show", "romaji": "Some Show", "native": "X"},
+                    "type": "ANIME",
+                    "episodes": 12,
+                    "status": "FINISHED",
+                    "genres": [],
+                    "averageScore": None,
+                    "siteUrl": "https://anilist.co/anime/999",
+                    "coverImage": {"large": "https://img.anilist.co/cover.jpg"},
+                    # format, source, countryOfOrigin, startDate, bannerImage, studios omitted
+                }
+            }
+        }
+        mock = MagicMock()
+        mock.json.return_value = resp
+        mock.raise_for_status = MagicMock()
+        text = "Anime Name: Some Show"
+        with patch("requests.post", return_value=mock):
+            result = extract(text, _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        assert result.media_format is None
+        assert result.source is None
+        assert result.country_of_origin is None
+        assert result.debut_year is None
+        assert result.banner_image is None
+        assert result.studios == []
+        # cover_image still set from `large` fallback
+        assert result.cover_image == "https://img.anilist.co/cover.jpg"
+
+    def test_studios_with_null_start_date_object(self):
+        """startDate present as dict but year is null → debut_year is None, no crash."""
+        resp = _anilist_response_full()
+        resp["data"]["Media"]["startDate"] = {"year": None}
+        mock = MagicMock()
+        mock.json.return_value = resp
+        mock.raise_for_status = MagicMock()
+        text = "Anime Name: Attack on Titan"
+        with patch("requests.post", return_value=mock):
+            result = extract(text, _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        assert result.debut_year is None
+
+    def test_network_error_new_fields_default(self):
+        """Network error path must set new fields to defaults via Pydantic, not crash."""
+        import requests as req_mod
+        text = "Anime Name: Attack on Titan"
+        with patch("requests.post", side_effect=req_mod.exceptions.ConnectionError("down")):
+            result = extract(text, _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        assert result.raw_title == "Attack on Titan"
+        assert result.media_format is None
+        assert result.source is None
+        assert result.country_of_origin is None
+        assert result.debut_year is None
+        assert result.banner_image is None
+        assert result.studios == []
+
+    def test_low_ratio_skips_enrichment_new_fields_default(self):
+        """When ratio < 0.4, new fields must remain at defaults (no enrichment)."""
+        resp = _anilist_response_full()
+        # Force a mismatch with the queried title
+        mock = MagicMock()
+        mock.json.return_value = resp
+        mock.raise_for_status = MagicMock()
+        text = "Anime Name: Asdfghjkl Qwerty Zxcvbn"
+        with patch("requests.post", return_value=mock):
+            result = extract(text, _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        # Ratio computed against canonical "Attack on Titan" → very low
+        assert result.media_format is None
+        assert result.studios == []
+        assert result.debut_year is None

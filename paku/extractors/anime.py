@@ -110,8 +110,20 @@ query ($search: String, $type: MediaType) {
   Media(search: $search, type: $type, sort: SEARCH_MATCH) {
     id
     title { romaji english native }
-    type episodes status genres averageScore siteUrl
-    coverImage { large }
+    type format source
+    episodes status genres averageScore siteUrl
+    countryOfOrigin
+    startDate { year }
+    coverImage { extraLarge large }
+    bannerImage
+    studios {
+      edges {
+        node {
+          name
+          isAnimationStudio
+        }
+      }
+    }
   }
 }
 """
@@ -765,6 +777,12 @@ def _process_single_title(
     score: float | None = None
     anilist_url: str | None = None
     cover_image: str | None = None
+    banner_image: str | None = None
+    media_format: str | None = None
+    source_material: str | None = None
+    country: str | None = None
+    debut_year: int | None = None
+    studios: list[str] = []
 
     if media and ratio >= 0.4:
         titles = media.get("title", {})
@@ -780,7 +798,18 @@ def _process_single_title(
         raw_score = media.get("averageScore")
         score = raw_score / 10.0 if raw_score is not None else None
         anilist_url = media.get("siteUrl")
-        cover_image = (media.get("coverImage") or {}).get("large")
+        cover_image = (media.get("coverImage") or {}).get("extraLarge") \
+            or (media.get("coverImage") or {}).get("large")
+        banner_image = media.get("bannerImage")
+        media_format = media.get("format")
+        source_material = media.get("source")
+        country = media.get("countryOfOrigin")
+        debut_year = (media.get("startDate") or {}).get("year")
+        studio_edges = (media.get("studios") or {}).get("edges") or []
+        studios = [
+            e["node"]["name"] for e in studio_edges
+            if e.get("node", {}).get("isAnimationStudio")
+        ]
 
     dedup_key = str(anilist_id) if anilist_id else (canonical_title or raw_title).lower().strip()
 
@@ -803,6 +832,12 @@ def _process_single_title(
         anilist_id=anilist_id,
         anilist_url=anilist_url,
         cover_image=cover_image,
+        banner_image=banner_image,
+        media_format=media_format,
+        source=source_material,
+        country_of_origin=country,
+        debut_year=debut_year,
+        studios=studios,
         extraction_mode="fast",
         title_pattern=title_pattern,
         extraction_context=extraction_context,
