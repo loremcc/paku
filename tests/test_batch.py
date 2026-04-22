@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -322,3 +323,117 @@ class TestProcessBatch:
             report, _ = process_batch(img_dir)
 
         assert report.review_queued == 1
+
+
+# ---------------------------------------------------------------------------
+# Multi-title extractions output
+# ---------------------------------------------------------------------------
+
+def _make_extraction_dict(
+    canonical_title: str,
+    raw_title: str,
+    anilist_id: int,
+    debut_year: int = 2020,
+) -> dict:
+    return {
+        "extractor": "anime",
+        "confidence": 0.9,
+        "needs_review": False,
+        "source_screenshot": "test.png",
+        "extracted_at": "2026-04-21T00:00:00+00:00",
+        "raw_title": raw_title,
+        "canonical_title": canonical_title,
+        "native_title": None,
+        "romaji": canonical_title,
+        "media_type": "ANIME",
+        "media_source": "anime",
+        "episodes": 12,
+        "status": "FINISHED",
+        "genres": [],
+        "score": 8.0,
+        "anilist_id": anilist_id,
+        "anilist_url": f"https://anilist.co/anime/{anilist_id}",
+        "cover_image": None,
+        "banner_image": None,
+        "media_format": "TV",
+        "source": "MANGA",
+        "country_of_origin": "JP",
+        "debut_year": debut_year,
+        "studios": ["Madhouse"],
+        "extraction_mode": "fast",
+        "title_pattern": "label",
+        "extraction_context": "recommendation",
+        "multi_title_detected": True,
+        "dedup_key": str(anilist_id),
+        "levenshtein_ratio": 1.0,
+    }
+
+
+class TestMultiTitleExtractionsOutput:
+    """extractions (plural) key: all titles written to TXT and CSV."""
+
+    def _make_multi_result(self) -> dict:
+        ex1 = _make_extraction_dict("Attack on Titan", "Attack on Titan", 101)
+        ex2 = _make_extraction_dict("One Piece", "One Piece", 102)
+        ex3 = _make_extraction_dict("Naruto", "Naruto", 103)
+        return {
+            "screenshot": "test.png",
+            "screen_type": "post",
+            "content_type": "anime",
+            "ocr_text": "...",
+            "engine": "stub",
+            "outputs": [],
+            "smart": False,
+            "extracted_at": "2026-04-21T00:00:00+00:00",
+            "status": "extracted",
+            "extraction": ex1,
+            "extractions": [ex1, ex2, ex3],
+        }
+
+    def test_all_titles_in_txt(self, tmp_path):
+        from paku.cli import _write_consolidated_txt
+
+        result = self._make_multi_result()
+        with patch("paku.cli.click"):
+            _write_consolidated_txt([result], tmp_path)
+
+        txt = (tmp_path / "anime_titles.txt").read_text(encoding="utf-8")
+        assert "Attack on Titan" in txt
+        assert "One Piece" in txt
+        assert "Naruto" in txt
+
+    def test_all_titles_in_csv(self, tmp_path):
+        from paku.cli import _write_anime_csv
+
+        result = self._make_multi_result()
+        with patch("paku.cli.click"):
+            _write_anime_csv([result], tmp_path)
+
+        rows = list(csv.DictReader((tmp_path / "anime_export.csv").read_text(encoding="utf-8").splitlines()))
+        titles = {r["English Title"] for r in rows}
+        assert "Attack on Titan" in titles
+        assert "One Piece" in titles
+        assert "Naruto" in titles
+        assert len(rows) == 3
+
+    def test_single_extraction_unchanged(self, tmp_path):
+        """Result without extractions key still writes the single title."""
+        from paku.cli import _write_consolidated_txt
+
+        single = {
+            "screenshot": "test.png",
+            "screen_type": "post",
+            "content_type": "anime",
+            "ocr_text": "...",
+            "engine": "stub",
+            "outputs": [],
+            "smart": False,
+            "extracted_at": "2026-04-21T00:00:00+00:00",
+            "status": "extracted",
+            "extraction": _make_extraction_dict("PLUTO", "PLUTO", 200),
+        }
+        with patch("paku.cli.click"):
+            _write_consolidated_txt([single], tmp_path)
+
+        txt = (tmp_path / "anime_titles.txt").read_text(encoding="utf-8")
+        assert "PLUTO" in txt

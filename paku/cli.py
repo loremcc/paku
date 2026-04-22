@@ -188,7 +188,12 @@ def _write_consolidated_txt(results: list[dict], output_dir: Path) -> None:
         ct = r.get("content_type", "unknown")
         extraction = r.get("extraction") or {}
         if ct == "anime":
-            value = extraction.get("canonical_title") or extraction.get("raw_title")
+            extras = r.get("extractions") or [extraction]
+            for ex in extras:
+                val = ex.get("canonical_title") or ex.get("raw_title")
+                if val:
+                    by_type.setdefault(ct, []).append(val)
+            continue
         elif ct == "url":
             value = extraction.get("resolved_url")
         elif ct == "recipe":
@@ -211,14 +216,16 @@ def _write_anime_csv(results: list[dict], output_dir: Path) -> None:
 
     anime_results: list[AnimeExtractionResult] = []
     for r in results:
-        if r.get("content_type") == "anime" and r.get("extraction"):
-            try:
-                anime_results.append(AnimeExtractionResult.model_validate(r["extraction"]))
-            except Exception:
-                pass
+        if r.get("content_type") == "anime":
+            extras = r.get("extractions") or ([r["extraction"]] if r.get("extraction") else [])
+            for ex in extras:
+                try:
+                    anime_results.append(AnimeExtractionResult.model_validate(ex))
+                except Exception:
+                    pass
 
     if not anime_results:
         return
 
-    out = write_anime_csv(anime_results, output_dir / "anime_notion_import.csv")
+    out = write_anime_csv(anime_results, output_dir / "anime_export.csv")
     click.echo(f"  [csv] {out}")

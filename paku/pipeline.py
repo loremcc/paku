@@ -503,6 +503,8 @@ def process_image(
     if extraction_result is not None:
         result["extraction"] = extraction_result.model_dump()
         result["status"] = "extracted"
+        if content_type == "anime" and isinstance(anime_results, list) and len(anime_results) > 1:
+            result["extractions"] = [r.model_dump() for r in anime_results]
 
         # Route to review queue for URL extraction (anime handled its own entries above).
         if content_type == "url" and extraction_result.needs_review:

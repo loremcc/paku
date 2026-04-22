@@ -49,7 +49,6 @@ _SOURCE_MAP: dict[str, str] = {
     "OTHER": "Other",
 }
 
-
 def write_csv(ingredients: list[dict], screenshot_stem: str, output_dir: str) -> Path:
     """Write ingredient rows to <output_dir>/<screenshot_stem>.csv.
 
@@ -131,7 +130,7 @@ def write_anime_csv(
             "Source": _SOURCE_MAP.get(source or "", source or ""),
             "Debut Year": str(debut_year) if debut_year is not None else "",
             "Status": "Not Started",
-            "Country": country or "Japan",
+            "Country": country or "",
             "Studios": ", ".join(studios) if studios else "",
         })
 
