@@ -30,6 +30,17 @@ _PLATFORM_SIGNALS: dict[str, list[str]] = {
 _DONGHUA_SIGNALS = ["Chinese Web Novel", "Donghua", "BiliBili", "G.CMay", "studio A-CAT"]
 _WESTERN_SIGNALS = ["Cartoon Network", "Adult Swim", "Disney", "Nickelodeon"]
 
+_COUNTRY_MAP: dict[str, str] = {
+    "JP": "Japan",
+    "KR": "South Korea",
+    "CN": "China",
+    "TW": "Taiwan",
+    "US": "USA",
+    "CA": "Canada",
+    "GB": "United Kingdom",
+    "FR": "France",
+}
+
 # --- Title extraction regexes ---
 
 # Pattern A: explicit label line (handles emoji between label and separator)
@@ -191,6 +202,14 @@ def _strip_chrome(text: str, platform: str) -> str:
 
         # Username + timestamp (e.g. "syed_akram6143 19h", "conroy_robinson 16w✰")
         if re.match(r"^[\w.][\w.]{1,30}\s+\d+[hmwdHMWD]\b", stripped):
+            continue
+
+        # Clock timestamps (16:51, 9:30, 12:00)
+        if re.match(r"^\d{1,2}:\d{2}$", stripped):
+            continue
+
+        # Mobile status bar (signal + battery: "5G 46", "LTE 87", "4G 23%", "Wi-Fi")
+        if re.match(r"^(?:[1-9]G|LTE|Wi[\s\-]?Fi)(?:\s+\d+%?)?$", stripped, re.IGNORECASE):
             continue
 
         # Pure numeric / engagement counts
@@ -687,7 +706,8 @@ def _assign_confidence(
 def _parse_anilist_app(
     ocr_text: str, screenshot_path: str, now: str
 ) -> AnimeExtractionResult:
-    lines = [l.strip() for l in ocr_text.splitlines() if l.strip()]
+    stripped = _strip_chrome(ocr_text, "anilist_app")
+    lines = [l.strip() for l in stripped.splitlines() if l.strip()]
     # First long centered line is the title
     raw_title = next(
         (l for l in lines if len(l) >= 3 and not any(s in l for s in ["ADD TO LIST", "AVERAGE SCORE", "MOST POPULAR"])),
@@ -803,13 +823,13 @@ def _process_single_title(
         banner_image = media.get("bannerImage")
         media_format = media.get("format")
         source_material = media.get("source")
-        country = media.get("countryOfOrigin")
+        country = _COUNTRY_MAP.get(media.get("countryOfOrigin") or "", "")
         debut_year = (media.get("startDate") or {}).get("year")
         studio_edges = (media.get("studios") or {}).get("edges") or []
-        studios = [
+        studios = list({
             e["node"]["name"] for e in studio_edges
             if e.get("node", {}).get("isAnimationStudio")
-        ]
+        })
 
     dedup_key = str(anilist_id) if anilist_id else (canonical_title or raw_title).lower().strip()
 

@@ -1239,13 +1239,13 @@ class TestExpandedAniListFields:
         assert isinstance(result, AnimeExtractionResult)
         assert result.media_format == "TV"
         assert result.source == "MANGA"
-        assert result.country_of_origin == "JP"
+        assert result.country_of_origin == "Japan"
         assert result.debut_year == 2013
         assert result.banner_image == "https://img.anilist.co/banner.jpg"
         # extraLarge preferred over large
         assert result.cover_image == "https://img.anilist.co/cover-xl.jpg"
-        # Only animation studios kept; order preserved
-        assert result.studios == ["Wit Studio", "MAPPA"]
+        # Only animation studios kept; set-based dedup (order not guaranteed)
+        assert set(result.studios) == {"Wit Studio", "MAPPA"}
 
     def test_extra_large_falls_back_to_large(self):
         """If extraLarge is absent, cover_image must fall back to large."""
@@ -1285,7 +1285,7 @@ class TestExpandedAniListFields:
             result = extract(text, _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
         assert result.media_format is None
         assert result.source is None
-        assert result.country_of_origin is None
+        assert result.country_of_origin == ""
         assert result.debut_year is None
         assert result.banner_image is None
         assert result.studios == []

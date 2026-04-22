@@ -20,7 +20,7 @@ Anything the pipeline isn't confident about lands in `review_queue.json` instead
 
 All three extractors are implemented and gate-verified. Batch mode is ready — point `paku digest` at a directory and it processes every image, writes a checkpoint after each one, and picks up where it left off if interrupted. 404 tests pass (2 skipped for missing credentials). Phase 1–3 gates all passed.
 
-Batch produces three consolidated outputs: `anime_titles.txt` / `urls.txt` / `recipe_titles.txt` (one entry per line, deduped), plus `anime_notion_import.csv` (9 exact Notion "Full Catalog" property columns, ready to import). Per-image JSON is written throughout.
+Batch produces three consolidated outputs: `anime_titles.txt` / `urls.txt` / `recipe_titles.txt` (one entry per line, deduped), plus `anime_export.csv` (9 exact Notion "Full Catalog" property columns, ready to import). Per-image JSON is written throughout.
 
 `--smart` flag enables confidence-gated re-run: when fast-path extraction returns confidence < 0.4, the pipeline re-OCRs with a local Ollama VLM (Gemma 4) for richer text and re-extracts. Falls back cleanly if Ollama is unavailable.
 
@@ -76,7 +76,7 @@ Batch mode writes a `.paku_checkpoint` file in the output directory. Each succes
 
 Consolidated outputs written after a batch completes:
 - `--output txt` → `anime_titles.txt`, `urls.txt`, `recipe_titles.txt` (one entry per line, deduped, sorted)
-- `--output csv` with `--mode anime` → `anime_notion_import.csv` (9 Notion property columns, deduped by AniList ID)
+- `--output csv` with `--mode anime` → `anime_export.csv` (9 Notion property columns, deduped by AniList ID)
 
 ## Config
 

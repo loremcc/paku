@@ -144,6 +144,7 @@ class TestPipelineSmartRerun:
              patch("paku.context.validate_config"), \
              patch("paku.pipeline.load_image") as mock_load, \
              patch("paku.pipeline.append_review_queue"), \
+             patch("paku.pipeline.guard_ocr_quality"), \
              patch("paku.extractors.anime.extract") as mock_anime_extract:
 
             # Fast-path returns low confidence
@@ -201,6 +202,7 @@ class TestPipelineSmartRerun:
              patch("paku.context.validate_config"), \
              patch("paku.pipeline.load_image") as mock_load, \
              patch("paku.pipeline.append_review_queue"), \
+             patch("paku.pipeline.guard_ocr_quality"), \
              patch("paku.extractors.anime.extract") as mock_anime_extract, \
              patch("paku.ocr.ollama.requests.post") as mock_post:
 

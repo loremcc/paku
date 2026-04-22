@@ -167,11 +167,11 @@ class TestWriteAnimeNotionCsv:
         rows = list(csv.DictReader(out.read_text(encoding="utf-8").splitlines()))
         assert rows[0]["Country"] == "KR"
 
-    def test_country_defaults_to_japan(self, tmp_path):
+    def test_country_empty_when_none(self, tmp_path):
         result = _make_result(country_of_origin=None)
         out = write_anime_csv([result], tmp_path / "out.csv")
         rows = list(csv.DictReader(out.read_text(encoding="utf-8").splitlines()))
-        assert rows[0]["Country"] == "Japan"
+        assert rows[0]["Country"] == ""
 
     def test_studios_joined(self, tmp_path):
         result = _make_result(studios=["Madhouse", "Studio Pierrot"])
