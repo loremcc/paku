@@ -26,7 +26,7 @@ Batch produces three consolidated outputs: `anime_titles.txt` / `urls.txt` / `re
 
 `--smart` flag enables confidence-gated re-run: when fast-path extraction returns confidence < 0.4, the pipeline re-OCRs with a local Ollama VLM (Gemma 4) for richer text and re-extracts. Falls back cleanly if Ollama is unavailable.
 
-Gate pending: Phase 4 — 1287 images in `input/` processed in one batch run with no crashes, anime CSV importable into Notion Full Catalog.
+Phase 4 gate passed (2026-04-24): 1281/1287 images processed, 765 anime JSONs → 599-row `anime_export.csv` (507 AniList-enriched), failed=1 (0.08%), review_queue=356.
 
 ## Install
 
@@ -134,7 +134,7 @@ Test fixtures go in `tests/fixtures/`. Real screenshots are gitignored — popul
 | v0.2 | URL extractor | Done (gate passed) |
 | v0.3 | Anime extractor + AniList | Done (gate passed) |
 | v0.4 | Recipe extractor | Done (gate passed) |
-| v0.5 | Batch processing + anime Notion CSV | Done — gate pending (1287-image input/ run) |
+| v0.5 | Batch processing + anime Notion CSV | Done (gate passed 2026-04-24) |
 | v0.6 | Dashboard + product identity | Done (gate passed 2026-04-23) |
 
 Each version has an explicit gate — a minimum accuracy threshold or throughput test measured on real screenshots — that must pass before the next version starts.

@@ -91,6 +91,43 @@ Extractor improvements applied during Phase 3 gate session (2026-04-19):
 - `_METRIC_PARENS_RE` + `_IMPERIAL_TRAIL_RE`: reversed-format "Name qty unit (metric_g)" now handled — `(450 g)` extracted as authoritative qty, garbled imperial stripped
 - Bare-count fallback in `_parse_ingredient_line`: "Vanilla bean 1" → qty=1, unit=None
 
+## Phase 4 — Batch Gate (v0.5)
+
+Full batch run on `input/` (1287 images). Not a fixture test — validates pipeline reliability and output quality at scale.
+
+**Run (2026-04-24):** `paku digest input/ --mode auto --smart --output txt --output json --output csv --resume --report`
+
+| Metric | Value |
+|--------|-------|
+| Total images | 1287 |
+| Processed | 1281 (99.5%) |
+| Failed | 1 (0.08%) |
+| review_queued | 356 |
+| anime JSONs | 765 |
+| url JSONs | 55 |
+| recipe JSONs | 17 |
+| unknown/unclassified | ~446 |
+| `anime_export.csv` rows | 599 (deduped) |
+| AniList-enriched rows | 507 (84.6%) |
+| Raw-title-only rows | 92 (15.4%) |
+
+**review_queue breakdown:**
+
+| Reason | Count | Notes |
+|--------|-------|-------|
+| `network_error` | 168 | AniList HTTP timeouts/503s mid-run |
+| `no_anilist_match` | 85 | Title extracted, no AniList fuzzy match |
+| `low_ratio` | ~68 | Match found but ratio < 0.6 gating threshold |
+| `multi_title_screenshot` | ~12 | Mixed-confidence multi-title posts |
+| `poor_ocr` | 5 | < 15 meaningful chars |
+| other | ~18 | Classification mismatches, unknown content |
+
+**Gate status: PASSED (2026-04-24).** failed=1 (0.08% << 5% threshold). Headers match `ANIME_CSV_HEADERS`. 10-row spot-check: `canonical_title` + `anilist_url` populated on all checked rows.
+
+**Architectural gap found:** `process_batch(--resume)` with all images checkpointed returns `results=[]`. Post-batch `_write_anime_csv([])` exits early — CSV not written. Workaround: read per-image JSONs from `output/` directly. See `tasks/lessons.md` for the lesson and rule.
+
+---
+
 ## Credentials
 
 Set one of:
