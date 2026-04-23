@@ -16,15 +16,17 @@ Anything the pipeline isn't confident about lands in `review_queue.json` instead
 
 ## Current state
 
-**v0.5 — Batch processing + anime Notion CSV**
+**v0.6 — Dashboard + product identity**
 
-All three extractors are implemented and gate-verified. Batch mode is ready — point `paku digest` at a directory and it processes every image, writes a checkpoint after each one, and picks up where it left off if interrupted. 404 tests pass (2 skipped for missing credentials). Phase 1–3 gates all passed.
+All three extractors are implemented and gate-verified. Batch mode is ready — point `paku digest` at a directory and it processes every image, writes a checkpoint after each one, and picks up where it left off if interrupted. 454 tests pass (2 skipped for missing credentials). Phases 1–3 and 5 gates all passed.
+
+`paku serve` starts a local dashboard (FastAPI + vanilla JS SPA) for browsing the extracted collection, uploading new screenshots, and managing watch status. No cloud accounts required; SQLite-backed, runs on 127.0.0.1.
 
 Batch produces three consolidated outputs: `anime_titles.txt` / `urls.txt` / `recipe_titles.txt` (one entry per line, deduped), plus `anime_export.csv` (9 exact Notion "Full Catalog" property columns, ready to import). Per-image JSON is written throughout.
 
 `--smart` flag enables confidence-gated re-run: when fast-path extraction returns confidence < 0.4, the pipeline re-OCRs with a local Ollama VLM (Gemma 4) for richer text and re-extracts. Falls back cleanly if Ollama is unavailable.
 
-Gate pending: 3000 screenshots processed in one batch run with no crashes, anime CSV importable into Notion Full Catalog.
+Gate pending: Phase 4 — 1287 images in `input/` processed in one batch run with no crashes, anime CSV importable into Notion Full Catalog.
 
 ## Install
 
@@ -39,6 +41,7 @@ For real OCR (not the stub engine):
 ```bash
 pip install "paku[ocr]"    # adds google-cloud-vision
 pip install "paku[smart]"  # enables --smart flag (Ollama VLM re-run)
+pip install "paku[web]"    # adds fastapi + uvicorn for paku serve
 ```
 
 Then set credentials — either:
@@ -70,6 +73,10 @@ paku digest ./screenshots/ --mode anime --output csv --no-resume
 
 # Batch — print breakdown by content type after completion
 paku digest ./screenshots/ --report
+
+# Dashboard — browse collection, upload screenshots, manage watch status
+paku serve
+paku serve --port 8080 --host 127.0.0.1
 ```
 
 Batch mode writes a `.paku_checkpoint` file in the output directory. Each successfully processed image is recorded there, so `--resume` (the default) skips it on the next run.
@@ -107,7 +114,7 @@ Everything works with defaults except OCR credentials. The `ollama` section is o
 ## Tests
 
 ```bash
-# All tests (404 currently)
+# All tests (454 currently)
 python -m pytest
 
 # With coverage
@@ -127,8 +134,8 @@ Test fixtures go in `tests/fixtures/`. Real screenshots are gitignored — popul
 | v0.2 | URL extractor | Done (gate passed) |
 | v0.3 | Anime extractor + AniList | Done (gate passed) |
 | v0.4 | Recipe extractor | Done (gate passed) |
-| v0.5 | Batch processing + anime Notion CSV | Done — gate pending (3000-screenshot run) |
-| v0.6 | Dashboard | -- |
+| v0.5 | Batch processing + anime Notion CSV | Done — gate pending (1287-image input/ run) |
+| v0.6 | Dashboard + product identity | Done (gate passed 2026-04-23) |
 
 Each version has an explicit gate — a minimum accuracy threshold or throughput test measured on real screenshots — that must pass before the next version starts.
 
@@ -155,11 +162,12 @@ paku/
     json_out.py         # Pretty-printed JSON writer (per image)
     txt_out.py          # Per-image text writer + write_batch_txt() (consolidated, deduped)
     csv_out.py          # Recipe ingredient CSV (per image) + write_anime_csv() (post-batch Notion import)
+  web/
+    database.py         # SQLite layer: Database class, ingest_pipeline_result, Pydantic models
+    app.py              # FastAPI factory create_app(db_path), 9 endpoints
+    static/
+      index.html        # Vanilla JS + Tailwind SPA — Collection, Add, Review, Dashboard tabs
 ```
-
-## Coming soon
-
-A browser-based dashboard (v0.6) for browsing the extracted collection, uploading new screenshots, and managing watch status — built on the same FastAPI + pipeline backend. No cloud accounts required; runs locally.
 
 ## License
 

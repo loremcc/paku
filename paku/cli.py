@@ -85,6 +85,24 @@ def digest(
         _run_single(path, mode, smart, list(outputs))
 
 
+@cli.command()
+@click.option("--host", default="127.0.0.1", show_default=True, help="Bind address.")
+@click.option("--port", default=8000, show_default=True, type=int, help="Bind port.")
+@click.option(
+    "--db",
+    "db_path",
+    default="paku_web.db",
+    show_default=True,
+    type=click.Path(path_type=str),
+    help="SQLite database file for the dashboard.",
+)
+def serve(host: str, port: int, db_path: str) -> None:
+    """Launch the paku dashboard (local web UI at http://HOST:PORT)."""
+    from .web.app import run_server
+
+    run_server(host=host, port=port, db_path=db_path)
+
+
 def _run_single(path: Path, mode: str, smart: bool, outputs: list[str]) -> None:
     click.echo(f"--- {path.name} ---")
     result = process_image(

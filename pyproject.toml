@@ -28,6 +28,12 @@ smart = [
     # requests is already a core dependency (AniList client uses it).
     # This extra exists as a capability marker matching the paku[ocr] pattern.
 ]
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27",
+]
 
 [project.scripts]
 paku = "paku.cli:cli"

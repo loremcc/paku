@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>paku</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Maven+Pro:wght@500;600;700;800&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paku-bg: #15171c;
+    --paku-surface: #1d2028;
+    --paku-surface-2: #262a35;
+    --paku-border: #32374a;
+    --paku-primary: #3c5ea8;
+    --paku-primary-2: #2a4680;
+    --paku-accent: #f2a4c3;
+    --paku-accent-2: #e07fa8;
+    --paku-text: #eef0f6;
+    --paku-text-dim: #9aa1b5;
+  }
+  html, body { background: var(--paku-bg); color: var(--paku-text); font-family: 'Nunito', sans-serif; }
+  h1,h2,h3,h4 { font-family: 'Maven Pro', sans-serif; letter-spacing: -0.01em; }
+  .surface { background: var(--paku-surface); border: 1px solid var(--paku-border); }
+  .surface-2 { background: var(--paku-surface-2); border: 1px solid var(--paku-border); }
+  .tab-btn {
+    padding: 0.55rem 1.1rem; border-radius: 0.5rem; font-weight: 600;
+    color: var(--paku-text-dim); transition: all .15s;
+  }
+  .tab-btn:hover { color: var(--paku-text); background: var(--paku-surface-2); }
+  .tab-btn.active { color: var(--paku-text); background: var(--paku-primary); }
+  .btn {
+    padding: 0.5rem 0.9rem; border-radius: 0.45rem; font-weight: 600;
+    background: var(--paku-primary); color: white; transition: all .15s;
+  }
+  .btn:hover { background: var(--paku-primary-2); }
+  .btn-accent { background: var(--paku-accent); color: #1a1a22; }
+  .btn-accent:hover { background: var(--paku-accent-2); }
+  .btn-ghost { background: var(--paku-surface-2); color: var(--paku-text); }
+  .btn-ghost:hover { background: var(--paku-border); }
+  .btn-danger { background: #8f3a42; color: white; }
+  .btn-danger:hover { background: #a14852; }
+  .chip {
+    display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
+    font-size: 0.72rem; font-weight: 600; background: var(--paku-surface-2);
+    color: var(--paku-text-dim); border: 1px solid var(--paku-border);
+  }
+  .chip-accent { background: rgba(242,164,195,0.15); color: var(--paku-accent); border-color: rgba(242,164,195,0.35); }
+  .chip-warn { background: rgba(234,179,8,0.15); color: #facc15; border-color: rgba(234,179,8,0.4); }
+  .card {
+    background: var(--paku-surface); border: 1px solid var(--paku-border);
+    border-radius: 0.6rem; overflow: hidden; transition: all .15s;
+    display: flex; flex-direction: column; cursor: pointer;
+  }
+  .card:hover { border-color: var(--paku-accent); transform: translateY(-2px); }
+  .card-cover { aspect-ratio: 2/3; background: var(--paku-surface-2) center/cover no-repeat; }
+  input, select, textarea {
+    background: var(--paku-surface-2); color: var(--paku-text);
+    border: 1px solid var(--paku-border); border-radius: 0.4rem;
+    padding: 0.45rem 0.7rem;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--paku-accent); }
+  .dropzone {
+    border: 2px dashed var(--paku-border); border-radius: 0.6rem; padding: 3rem;
+    text-align: center; color: var(--paku-text-dim); transition: all .15s;
+  }
+  .dropzone.drag { border-color: var(--paku-accent); background: rgba(242,164,195,0.05); color: var(--paku-text); }
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 50;
+    display: flex; align-items: center; justify-content: center; padding: 2rem;
+  }
+  .modal-content {
+    background: var(--paku-surface); border: 1px solid var(--paku-border);
+    border-radius: 0.6rem; max-width: 960px; width: 100%; max-height: 90vh; overflow-y: auto;
+  }
+  .bar { height: 8px; background: var(--paku-surface-2); border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--paku-accent); }
+</style>
+</head>
+<body>
+<header class="sticky top-0 z-40 surface border-b">
+  <div class="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg" style="background: var(--paku-accent);"></div>
+      <h1 class="text-2xl font-bold">paku</h1>
+      <span class="text-xs" style="color: var(--paku-text-dim);">dashboard · v0.6</span>
+    </div>
+    <nav class="flex gap-1" id="tabs">
+      <button class="tab-btn" data-tab="dashboard">Dashboard</button>
+      <button class="tab-btn" data-tab="collection">Collection</button>
+      <button class="tab-btn" data-tab="add">Add</button>
+      <button class="tab-btn" data-tab="review">Review</button>
+    </nav>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-8">
+
+  <!-- DASHBOARD TAB -->
+  <section id="tab-dashboard" class="tab-panel hidden">
+    <h2 class="text-3xl font-bold mb-6">Overview</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" id="stat-cards"></div>
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="surface rounded-lg p-5">
+        <h3 class="text-lg font-semibold mb-4">By status</h3>
+        <div id="stats-by-status" class="space-y-3"></div>
+      </div>
+      <div class="surface rounded-lg p-5">
+        <h3 class="text-lg font-semibold mb-4">Top genres</h3>
+        <div id="stats-by-genre" class="space-y-2"></div>
+      </div>
+    </div>
+    <div class="surface rounded-lg p-5 mt-6">
+      <h3 class="text-lg font-semibold mb-4">Recent additions</h3>
+      <div id="stats-recent" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3"></div>
+    </div>
+  </section>
+
+  <!-- COLLECTION TAB -->
+  <section id="tab-collection" class="tab-panel hidden">
+    <div class="flex flex-wrap items-end gap-3 mb-6">
+      <h2 class="text-3xl font-bold mr-auto">Collection</h2>
+      <input id="filter-search" type="text" placeholder="Search title..." class="w-64">
+      <select id="filter-status">
+        <option value="">All statuses</option>
+        <option>Watching</option><option>Completed</option>
+        <option>Plan to Watch</option><option>Dropped</option><option>On Hold</option>
+      </select>
+      <select id="filter-sort">
+        <option value="added_at">Recently added</option>
+        <option value="title">Title</option>
+        <option value="score">Score</option>
+        <option value="debut_year">Debut year</option>
+      </select>
+      <select id="filter-order">
+        <option value="desc">Desc</option><option value="asc">Asc</option>
+      </select>
+    </div>
+    <div id="collection-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4"></div>
+    <div id="collection-empty" class="hidden text-center py-20" style="color: var(--paku-text-dim);">
+      Nothing here yet. Head to <strong>Add</strong> to drop in a screenshot.
+    </div>
+    <div id="collection-pager" class="flex justify-center gap-2 mt-8"></div>
+  </section>
+
+  <!-- ADD TAB -->
+  <section id="tab-add" class="tab-panel hidden">
+    <h2 class="text-3xl font-bold mb-6">Add</h2>
+    <div class="grid md:grid-cols-2 gap-8">
+      <div class="surface rounded-lg p-5">
+        <h3 class="text-lg font-semibold mb-3">Upload screenshot</h3>
+        <div class="dropzone" id="dropzone">
+          <p class="mb-2">Drop an image here</p>
+          <p class="text-xs mb-3">or</p>
+          <label class="btn cursor-pointer inline-block">
+            Choose file
+            <input type="file" id="file-input" accept="image/*" class="hidden">
+          </label>
+        </div>
+        <div class="mt-4 flex gap-3 items-center">
+          <label class="text-sm" style="color: var(--paku-text-dim);">Mode</label>
+          <select id="digest-mode">
+            <option value="auto">auto</option>
+            <option value="anime">anime</option>
+            <option value="url">url</option>
+            <option value="recipe">recipe</option>
+          </select>
+          <label class="text-sm flex items-center gap-2">
+            <input type="checkbox" id="digest-smart"> smart
+          </label>
+        </div>
+        <div id="digest-result" class="mt-5"></div>
+      </div>
+
+      <div class="surface rounded-lg p-5">
+        <h3 class="text-lg font-semibold mb-3">Search AniList</h3>
+        <form id="search-form" class="flex gap-2 mb-4">
+          <input id="search-input" type="text" placeholder="Frieren, Jujutsu Kaisen..." class="flex-1">
+          <button class="btn-accent btn" type="submit">Search</button>
+        </form>
+        <div id="search-results" class="space-y-2 max-h-[70vh] overflow-y-auto"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- REVIEW TAB -->
+  <section id="tab-review" class="tab-panel hidden">
+    <h2 class="text-3xl font-bold mb-6">Needs review</h2>
+    <p class="text-sm mb-5" style="color: var(--paku-text-dim);">
+      Low-confidence extractions. Confirm to keep, or delete if wrong.
+    </p>
+    <div id="review-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
+    <div id="review-empty" class="hidden text-center py-20" style="color: var(--paku-text-dim);">
+      Clean queue. Nothing to review.
+    </div>
+  </section>
+</main>
+
+<div id="modal-root"></div>
+
+<script>
+const api = {
+  async stats() { return (await fetch('/api/stats')).json(); },
+  async collection(params = {}) {
+    const qs = new URLSearchParams(Object.entries(params).filter(([,v]) => v !== '' && v != null));
+    return (await fetch('/api/collection?' + qs)).json();
+  },
+  async item(id) { return (await fetch('/api/collection/' + id)).json(); },
+  async patchStatus(id, user_status) {
+    return (await fetch('/api/collection/' + id, {
+      method: 'PATCH', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({user_status})
+    })).json();
+  },
+  async clearReview(id) {
+    return (await fetch('/api/collection/' + id + '/review/clear', {method: 'POST'})).json();
+  },
+  async remove(id) {
+    return (await fetch('/api/collection/' + id, {method: 'DELETE'})).json();
+  },
+  async digest(file, mode, smart) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const qs = new URLSearchParams({mode, smart: smart ? 'true' : 'false'});
+    const r = await fetch('/api/digest?' + qs, {method: 'POST', body: fd});
+    if (!r.ok) throw new Error((await r.json()).detail || 'upload failed');
+    return r.json();
+  },
+  async search(q) {
+    return (await fetch('/api/search?q=' + encodeURIComponent(q))).json();
+  },
+  async searchAdd(anilist_id) {
+    const r = await fetch('/api/search/add', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({anilist_id})
+    });
+    if (!r.ok) throw new Error('add failed');
+    return r.json();
+  }
+};
+
+// --- Tab routing ---
+const tabs = ['dashboard', 'collection', 'add', 'review'];
+function showTab(name) {
+  if (!tabs.includes(name)) name = 'dashboard';
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  document.getElementById('tab-' + name).classList.remove('hidden');
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  location.hash = name;
+  if (name === 'dashboard') loadDashboard();
+  if (name === 'collection') loadCollection();
+  if (name === 'review') loadReview();
+}
+document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
+
+// --- Dashboard ---
+async function loadDashboard() {
+  const s = await api.stats();
+  const cards = [
+    {label: 'Total', value: s.total},
+    {label: 'Watching', value: s.by_user_status['Watching'] || 0},
+    {label: 'Completed', value: s.by_user_status['Completed'] || 0},
+    {label: 'Needs review', value: s.needs_review_count, accent: true},
+  ];
+  document.getElementById('stat-cards').innerHTML = cards.map(c => `
+    <div class="surface rounded-lg p-5">
+      <div class="text-sm" style="color: var(--paku-text-dim);">${c.label}</div>
+      <div class="text-4xl font-bold mt-1 ${c.accent ? '' : ''}" style="${c.accent ? 'color: var(--paku-accent);' : ''}">${c.value}</div>
+    </div>
+  `).join('');
+
+  const maxStatus = Math.max(1, ...Object.values(s.by_user_status));
+  document.getElementById('stats-by-status').innerHTML = Object.entries(s.by_user_status).map(([k, v]) => `
+    <div>
+      <div class="flex justify-between text-sm mb-1">
+        <span>${k}</span><span style="color: var(--paku-text-dim);">${v}</span>
+      </div>
+      <div class="bar"><div class="bar-fill" style="width: ${(v/maxStatus)*100}%"></div></div>
+    </div>
+  `).join('');
+
+  const genres = Object.entries(s.by_genre).slice(0, 10);
+  document.getElementById('stats-by-genre').innerHTML = genres.length ? genres.map(([g, c]) => `
+    <div class="flex justify-between items-center">
+      <span class="chip chip-accent">${g}</span>
+      <span class="text-sm" style="color: var(--paku-text-dim);">${c}</span>
+    </div>
+  `).join('') : '<p class="text-sm" style="color: var(--paku-text-dim);">No genres yet.</p>';
+
+  document.getElementById('stats-recent').innerHTML = s.recent_additions.map(r => cardHTML(r)).join('') ||
+    '<p class="col-span-full text-sm" style="color: var(--paku-text-dim);">Nothing added yet.</p>';
+  attachCardHandlers('stats-recent');
+}
+
+// --- Collection ---
+let collectionPage = 1;
+async function loadCollection() {
+  const params = {
+    status: document.getElementById('filter-status').value,
+    search: document.getElementById('filter-search').value,
+    sort: document.getElementById('filter-sort').value,
+    order: document.getElementById('filter-order').value,
+    page: collectionPage, per_page: 60,
+  };
+  const data = await api.collection(params);
+  const grid = document.getElementById('collection-grid');
+  const empty = document.getElementById('collection-empty');
+  if (!data.items.length) {
+    grid.innerHTML = ''; empty.classList.remove('hidden');
+  } else {
+    empty.classList.add('hidden');
+    grid.innerHTML = data.items.map(cardHTML).join('');
+    attachCardHandlers('collection-grid');
+  }
+  renderPager(data);
+}
+function renderPager({page, per_page, total}) {
+  const pages = Math.max(1, Math.ceil(total / per_page));
+  const el = document.getElementById('collection-pager');
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <button class="btn-ghost btn" ${page<=1?'disabled':''} data-page="${page-1}">Prev</button>
+    <span class="px-3 py-2 text-sm" style="color: var(--paku-text-dim);">Page ${page} / ${pages}</span>
+    <button class="btn-ghost btn" ${page>=pages?'disabled':''} data-page="${page+1}">Next</button>
+  `;
+  el.querySelectorAll('button[data-page]').forEach(b => b.addEventListener('click', () => {
+    collectionPage = parseInt(b.dataset.page); loadCollection();
+  }));
+}
+['filter-status', 'filter-sort', 'filter-order'].forEach(id =>
+  document.getElementById(id).addEventListener('change', () => { collectionPage = 1; loadCollection(); })
+);
+document.getElementById('filter-search').addEventListener('input', debounce(() => { collectionPage = 1; loadCollection(); }, 300));
+
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+// --- Review ---
+async function loadReview() {
+  const data = await api.collection({needs_review: true, per_page: 200});
+  const grid = document.getElementById('review-grid');
+  const empty = document.getElementById('review-empty');
+  if (!data.items.length) {
+    grid.innerHTML = ''; empty.classList.remove('hidden');
+  } else {
+    empty.classList.add('hidden');
+    grid.innerHTML = data.items.map(cardHTML).join('');
+    attachCardHandlers('review-grid');
+  }
+}
+
+// --- Card + detail modal ---
+function cardHTML(e) {
+  const cover = e.cover_image || '';
+  const title = e.canonical_title || e.raw_title;
+  const fmt = e.media_format ? `<span class="chip">${e.media_format}</span>` : '';
+  const score = e.score != null ? `<span class="chip">${e.score.toFixed(1)}</span>` : '';
+  const rev = e.needs_review ? `<span class="chip chip-warn">review</span>` : '';
+  const coverStyle = cover ? `background-image:url('${cover}')` : '';
+  return `
+    <div class="card" data-id="${e.id}">
+      <div class="card-cover" style="${coverStyle}"></div>
+      <div class="p-3 flex-1 flex flex-col gap-2">
+        <div class="font-semibold text-sm leading-tight line-clamp-2" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+        <div class="flex flex-wrap gap-1 mt-auto">${fmt}${score}${rev}
+          <span class="chip chip-accent">${e.user_status}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+function attachCardHandlers(containerId) {
+  document.getElementById(containerId).querySelectorAll('.card').forEach(c =>
+    c.addEventListener('click', () => openDetail(parseInt(c.dataset.id)))
+  );
+}
+async function openDetail(id) {
+  const e = await api.item(id);
+  const studios = (e.studios || []).join(', ') || '—';
+  const genres = (e.genres || []).map(g => `<span class="chip chip-accent">${g}</span>`).join(' ') || '—';
+  const banner = e.banner_image ? `<div class="h-40 bg-center bg-cover" style="background-image:url('${e.banner_image}')"></div>` : '';
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-backdrop" id="modal-backdrop">
+      <div class="modal-content" onclick="event.stopPropagation()">
+        ${banner}
+        <div class="p-6">
+          <div class="flex gap-5 mb-5">
+            ${e.cover_image ? `<img src="${e.cover_image}" class="w-32 rounded-lg" />` : ''}
+            <div class="flex-1">
+              <h2 class="text-2xl font-bold">${escapeHtml(e.canonical_title || e.raw_title)}</h2>
+              ${e.romaji ? `<p class="text-sm mt-1" style="color: var(--paku-text-dim);">${escapeHtml(e.romaji)}</p>` : ''}
+              ${e.native_title ? `<p class="text-sm" style="color: var(--paku-text-dim);">${escapeHtml(e.native_title)}</p>` : ''}
+              <div class="flex flex-wrap gap-2 mt-3">
+                ${e.media_format ? `<span class="chip">${e.media_format}</span>` : ''}
+                ${e.source ? `<span class="chip">${e.source}</span>` : ''}
+                ${e.episodes ? `<span class="chip">${e.episodes} ep</span>` : ''}
+                ${e.status ? `<span class="chip">${e.status}</span>` : ''}
+                ${e.debut_year ? `<span class="chip">${e.debut_year}</span>` : ''}
+                ${e.country_of_origin ? `<span class="chip">${e.country_of_origin}</span>` : ''}
+                ${e.score != null ? `<span class="chip">★ ${e.score.toFixed(1)}</span>` : ''}
+                ${e.needs_review ? `<span class="chip chip-warn">needs review</span>` : ''}
+              </div>
+              <div class="mt-4">
+                <label class="text-xs block mb-1" style="color: var(--paku-text-dim);">User status</label>
+                <select id="detail-status" class="w-full md:w-64">
+                  ${['Watching','Completed','Plan to Watch','Dropped','On Hold']
+                    .map(s => `<option ${s===e.user_status?'selected':''}>${s}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-2 gap-4 text-sm mb-5">
+            <div><span style="color: var(--paku-text-dim);">Studios:</span> ${escapeHtml(studios)}</div>
+            <div><span style="color: var(--paku-text-dim);">Confidence:</span> ${(e.confidence ?? 0).toFixed(2)}</div>
+          </div>
+          <div class="mb-5"><span class="text-sm" style="color: var(--paku-text-dim);">Genres:</span><div class="flex flex-wrap gap-1 mt-2">${genres}</div></div>
+          ${e.source_screenshot ? `<p class="text-xs" style="color: var(--paku-text-dim);">Source: ${escapeHtml(e.source_screenshot)}</p>` : ''}
+          <div class="flex gap-2 mt-6">
+            ${e.anilist_url ? `<a class="btn btn-ghost" href="${e.anilist_url}" target="_blank">View on AniList</a>` : ''}
+            ${e.needs_review ? `<button class="btn btn-accent" id="detail-confirm">Confirm</button>` : ''}
+            <button class="btn btn-danger ml-auto" id="detail-delete">Remove</button>
+            <button class="btn btn-ghost" id="detail-close">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  const close = () => { document.getElementById('modal-root').innerHTML = ''; };
+  document.getElementById('modal-backdrop').addEventListener('click', close);
+  document.getElementById('detail-close').addEventListener('click', close);
+  document.getElementById('detail-status').addEventListener('change', async ev => {
+    await api.patchStatus(e.id, ev.target.value); refreshActive();
+  });
+  document.getElementById('detail-delete').addEventListener('click', async () => {
+    if (!confirm('Remove from collection?')) return;
+    await api.remove(e.id); close(); refreshActive();
+  });
+  const confirmBtn = document.getElementById('detail-confirm');
+  if (confirmBtn) confirmBtn.addEventListener('click', async () => {
+    await api.clearReview(e.id); close(); refreshActive();
+  });
+}
+function refreshActive() {
+  const cur = location.hash.slice(1) || 'dashboard';
+  if (cur === 'dashboard') loadDashboard();
+  if (cur === 'collection') loadCollection();
+  if (cur === 'review') loadReview();
+}
+
+// --- Add / digest ---
+const dz = document.getElementById('dropzone');
+const fi = document.getElementById('file-input');
+['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); }));
+dz.addEventListener('drop', e => { if (e.dataTransfer.files[0]) runDigest(e.dataTransfer.files[0]); });
+fi.addEventListener('change', e => { if (e.target.files[0]) runDigest(e.target.files[0]); });
+
+async function runDigest(file) {
+  const mode = document.getElementById('digest-mode').value;
+  const smart = document.getElementById('digest-smart').checked;
+  const box = document.getElementById('digest-result');
+  box.innerHTML = `<div class="surface-2 rounded-lg p-4">Processing <strong>${escapeHtml(file.name)}</strong>…</div>`;
+  try {
+    const r = await api.digest(file, mode, smart);
+    renderDigestResult(r, file.name);
+  } catch (err) {
+    box.innerHTML = `<div class="surface-2 rounded-lg p-4" style="color:#f87171">Error: ${escapeHtml(err.message)}</div>`;
+  }
+}
+function renderDigestResult(r, filename) {
+  const box = document.getElementById('digest-result');
+  if (r.content_type !== 'anime' || !r.stored.length) {
+    box.innerHTML = `
+      <div class="surface-2 rounded-lg p-4">
+        <p><strong>${escapeHtml(filename)}</strong></p>
+        <p class="text-sm mt-2" style="color: var(--paku-text-dim);">
+          content: ${r.content_type} · not stored (dashboard is anime-first).
+        </p>
+      </div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="surface-2 rounded-lg p-4">
+      <p class="mb-3"><strong>${escapeHtml(filename)}</strong> · ${r.stored.length} extraction${r.stored.length>1?'s':''}
+        ${r.needs_review ? `<span class="chip chip-warn ml-2">needs review</span>` : ''}
+      </p>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+        ${r.stored.map(cardHTML).join('')}
+      </div>
+    </div>
+  `;
+  attachCardHandlers('digest-result');
+}
+
+// --- Search ---
+document.getElementById('search-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  const box = document.getElementById('search-results');
+  box.innerHTML = '<p class="text-sm" style="color: var(--paku-text-dim);">Searching…</p>';
+  try {
+    const data = await api.search(q);
+    if (!data.results.length) { box.innerHTML = '<p class="text-sm" style="color: var(--paku-text-dim);">No matches.</p>'; return; }
+    box.innerHTML = data.results.map(m => `
+      <div class="surface-2 rounded-lg p-3 flex gap-3 items-center">
+        ${m.cover_image ? `<img src="${m.cover_image}" class="w-12 h-16 object-cover rounded" />` : '<div class="w-12 h-16 rounded" style="background: var(--paku-border);"></div>'}
+        <div class="flex-1 min-w-0">
+          <div class="font-semibold truncate">${escapeHtml(m.english || m.romaji || m.native || 'Untitled')}</div>
+          <div class="text-xs truncate" style="color: var(--paku-text-dim);">${escapeHtml(m.romaji || '')}</div>
+          <div class="flex gap-1 mt-1 flex-wrap">
+            ${m.media_format ? `<span class="chip">${m.media_format}</span>` : ''}
+            ${m.debut_year ? `<span class="chip">${m.debut_year}</span>` : ''}
+            ${m.score != null ? `<span class="chip">★ ${m.score.toFixed(1)}</span>` : ''}
+          </div>
+        </div>
+        <button class="btn btn-accent" data-add="${m.anilist_id}">Add</button>
+      </div>
+    `).join('');
+    box.querySelectorAll('button[data-add]').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true; b.textContent = '…';
+      try { await api.searchAdd(parseInt(b.dataset.add)); b.textContent = 'Added'; }
+      catch { b.disabled = false; b.textContent = 'Retry'; }
+    }));
+  } catch {
+    box.innerHTML = '<p class="text-sm" style="color:#f87171">Search failed.</p>';
+  }
+});
+
+// --- Utils ---
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+// --- Boot ---
+showTab(location.hash.slice(1) || 'dashboard');
+</script>
+</body>
+</html>

@@ -5,6 +5,7 @@ from __future__ import annotations
 # Structural template: follows url.py conventions (one public extract(), helpers private).
 
 import re
+import time
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from logging import Logger
@@ -575,28 +576,54 @@ def _extract_title(text: str, full_text: str | None = None) -> tuple[str | None,
 # --- AniList query ---
 
 
+_ANILIST_RETRIES = 3
+_ANILIST_TIMEOUT = 15  # seconds per attempt
+_ANILIST_BACKOFF = (1, 2, 4)  # seconds between retries
+
+
 def _query_anilist(
     search: str, media_type: str, logger: Logger
 ) -> tuple[dict | None, str | None]:
-    """POST to AniList GraphQL. Returns (media_dict | None, error_type | None)."""
-    try:
-        resp = requests.post(
-            _ANILIST_URL,
-            json={"query": _ANILIST_QUERY, "variables": {"search": search, "type": media_type}},
-            timeout=10,
-        )
-        # AniList returns 404 when no anime matches the search term — treat as no result.
-        if resp.status_code == 404:
-            logger.debug(f"[anime] AniList no result (404) for '{search}' type={media_type}")
-            return None, None
-        resp.raise_for_status()
-        data = resp.json()
-        # Use `or {}` to handle {"data": null, "errors": [...]} responses from AniList.
-        media = (data.get("data") or {}).get("Media")
-        return media, None
-    except Exception as e:
-        logger.exception(f"[anime] AniList call failed for '{search}' type={media_type}: {e}")
-        return None, "network_error"
+    """POST to AniList GraphQL. Returns (media_dict | None, error_type | None).
+
+    Retries up to _ANILIST_RETRIES times with exponential backoff on transient
+    network errors (timeouts, connection resets). 429 rate-limit waits the
+    Retry-After header value before the next attempt.
+    """
+    for attempt in range(_ANILIST_RETRIES):
+        try:
+            resp = requests.post(
+                _ANILIST_URL,
+                json={"query": _ANILIST_QUERY, "variables": {"search": search, "type": media_type}},
+                timeout=_ANILIST_TIMEOUT,
+            )
+            # AniList returns 404 when no anime matches the search term — treat as no result.
+            if resp.status_code == 404:
+                logger.debug(f"[anime] AniList no result (404) for '{search}' type={media_type}")
+                return None, None
+            if resp.status_code == 429:
+                wait = int(resp.headers.get("Retry-After", _ANILIST_BACKOFF[min(attempt, 2)]))
+                logger.warning(f"[anime] AniList rate-limited, waiting {wait}s (attempt {attempt + 1})")
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            # Use `or {}` to handle {"data": null, "errors": [...]} responses from AniList.
+            media = (data.get("data") or {}).get("Media")
+            return media, None
+        except requests.exceptions.Timeout:
+            logger.warning(
+                f"[anime] AniList timeout for '{search}' type={media_type} "
+                f"(attempt {attempt + 1}/{_ANILIST_RETRIES})"
+            )
+            if attempt < _ANILIST_RETRIES - 1:
+                time.sleep(_ANILIST_BACKOFF[attempt])
+        except Exception as e:
+            logger.exception(f"[anime] AniList call failed for '{search}' type={media_type}: {e}")
+            return None, "network_error"
+
+    logger.error(f"[anime] AniList gave up after {_ANILIST_RETRIES} attempts for '{search}'")
+    return None, "network_error"
 
 
 def _levenshtein(a: str, b: str) -> float:

@@ -1,6 +1,9 @@
 # Sensitive config — never commit
 config.yaml
 
+# Images
+input/
+
 # Extracted personal data
 output/
 
@@ -43,5 +46,10 @@ tasks/
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
 
-# Gemma 4
+# Gemma 4 (for smart mode)
 Modelfile.paku
+
+# Runtime state — personal data, machine-specific paths
+*.db
+.paku_checkpoint
+review_queue.json
