@@ -632,3 +632,53 @@ class TestPipelineIntegration:
         assert len(queue) == 1
         assert queue[0]["extractor"] == "url"
         assert "domain-only" in queue[0]["reason"]
+
+
+class TestTier1NavPathDowngrade:
+    """Fix 3: Tier 1 URLs whose sole path segment is a nav-chrome word get downgraded."""
+
+    def test_donate_path_downgraded(self):
+        result = _tier1("https://sindresorhus.com/donate")
+        assert result is not None
+        assert result.confidence == 0.7
+        assert result.needs_review is True
+        assert result.extraction_tier == 1
+        assert result.resolved_url == "https://sindresorhus.com/donate"
+
+    def test_about_path_downgraded(self):
+        result = _tier1("https://github.com/about")
+        assert result is not None
+        assert result.confidence == 0.7
+        assert result.needs_review is True
+
+    def test_sponsor_path_downgraded(self):
+        result = _tier1("https://example.org/sponsor")
+        assert result is not None
+        assert result.confidence == 0.7
+        assert result.needs_review is True
+
+    def test_two_segment_path_not_downgraded(self):
+        # /anthropics/claude-code has 2 segments → not a nav element → full confidence
+        result = _tier1("https://github.com/anthropics/claude-code")
+        assert result is not None
+        assert result.confidence == 0.9
+        assert result.needs_review is False
+
+    def test_no_path_not_downgraded(self):
+        result = _tier1("https://sindresorhus.com/")
+        assert result is not None
+        assert result.confidence == 0.9
+        assert result.needs_review is False
+
+    def test_non_nav_single_segment_not_downgraded(self):
+        result = _tier1("https://example.com/awesome-project")
+        assert result is not None
+        assert result.confidence == 0.9
+        assert result.needs_review is False
+
+    def test_donate_multi_segment_not_downgraded(self):
+        # /donate/github is 2 segments → rule doesn't apply
+        result = _tier1("https://example.com/donate/github")
+        assert result is not None
+        assert result.confidence == 0.9
+        assert result.needs_review is False

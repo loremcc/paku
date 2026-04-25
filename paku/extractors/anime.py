@@ -94,6 +94,43 @@ def _transform_hashtag(tag: str) -> str:
     cleaned = _HASHTAG_SUFFIX_RE.sub("", tag).strip()
     return _CAMEL_RE.sub(r"\1 \2", cleaned).strip()
 
+
+# --- AniList query normalization (v0.6.1) ---
+# AniList fuzzy search performs worse when titles include season/episode markers
+# or decorative unicode. Strip these before querying; fall back to the original
+# if the normalized query returns no match.
+
+_SEASON_MARKER_RE = re.compile(r"\s+(?:Season|S)\s*\d+$", re.IGNORECASE)
+_EP_MARKER_RE = re.compile(r"\s+EP\s*\d+$", re.IGNORECASE)
+_PART_MARKER_RE = re.compile(r"\s+Part\s+\d+$", re.IGNORECASE)
+
+# Leading/trailing decorative unicode — keeps ASCII + CJK letters intact.
+_DECORATIVE_RANGES = (
+    r" -⁯"            # general punctuation (bullets, en/em dash)
+    r"☀-➿"            # misc symbols + dingbats (★ ✦ ✨)
+    r"⬀-⯿"            # misc symbols and arrows (⭐)
+    r"\U0001F300-\U0001FAFF"    # emoji
+    r"　-〿"            # CJK symbols and punctuation (【 】)
+)
+_DECORATIVE_RE = re.compile(
+    rf"^[\s{_DECORATIVE_RANGES}]+|[\s{_DECORATIVE_RANGES}]+$"
+)
+
+
+def _normalize_for_anilist(title: str) -> str:
+    """Strip trailing season/episode/part markers and decorative unicode.
+
+    Keeps ASCII, Latin-1, and CJK letters intact. Returns the title unchanged
+    when no markers or decorative chars are present.
+    """
+    if not title:
+        return title
+    out = _SEASON_MARKER_RE.sub("", title)
+    out = _EP_MARKER_RE.sub("", out)
+    out = _PART_MARKER_RE.sub("", out)
+    out = _DECORATIVE_RE.sub("", out).strip()
+    return out
+
 # Multi-title detection
 _MULTI_DATE_RE = re.compile(
     r"^\d+\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(.+)$",
@@ -130,6 +167,7 @@ query ($search: String, $type: MediaType) {
     bannerImage
     studios {
       edges {
+        isMain
         node {
           name
           isAnimationStudio
@@ -384,6 +422,8 @@ _GARBAGE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^View\s+\d+\s+more\s+repl", re.IGNORECASE),
     # "Add comment"
     re.compile(r"^Add\s+(?:a\s+)?comment", re.IGNORECASE),
+    # Form-field placeholder "none" — never a valid anime title
+    re.compile(r"^\s*none\s*$", re.IGNORECASE),
 ]
 
 
@@ -579,6 +619,9 @@ def _extract_title(text: str, full_text: str | None = None) -> tuple[str | None,
 _ANILIST_RETRIES = 3
 _ANILIST_TIMEOUT = 15  # seconds per attempt
 _ANILIST_BACKOFF = (1, 2, 4)  # seconds between retries
+# Proactive throttle: AniList enforces 90 req/min per IP. 0.7 s/call = ~85 RPM.
+_ANILIST_MIN_INTERVAL = 0.7
+_anilist_last_call: float = 0.0
 
 
 def _query_anilist(
@@ -586,10 +629,17 @@ def _query_anilist(
 ) -> tuple[dict | None, str | None]:
     """POST to AniList GraphQL. Returns (media_dict | None, error_type | None).
 
+    Proactively throttles to ~85 RPM to stay under AniList's 90 RPM limit.
     Retries up to _ANILIST_RETRIES times with exponential backoff on transient
     network errors (timeouts, connection resets). 429 rate-limit waits the
     Retry-After header value before the next attempt.
     """
+    global _anilist_last_call
+    elapsed = time.monotonic() - _anilist_last_call
+    if elapsed < _ANILIST_MIN_INTERVAL:
+        time.sleep(_ANILIST_MIN_INTERVAL - elapsed)
+    _anilist_last_call = time.monotonic()
+
     for attempt in range(_ANILIST_RETRIES):
         try:
             resp = requests.post(
@@ -632,10 +682,25 @@ def _levenshtein(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
+# Scoring tiers applied in _enhanced_ratio (v0.6.2):
+#   1. Base Levenshtein (via difflib.SequenceMatcher.ratio()).
+#   2. Short-circuit at base >= 0.8 — no boost needed, already auto-accept territory.
+#   3. Substring boost: raw is 8+ char substring of canonical → return max(base, 0.85).
+#   4. Word-set Jaccard boost: Jaccard(raw_words, canon_words) >= 0.75 with
+#      raw_words >= 3 AND canon_words >= 3 → return max(base, 0.85).
+#   5. Common-word-count boost (NEW): 50%+ of raw non-stopword tokens appear in
+#      canonical → base + 0.15 (capped at 1.0). Helps cases where canonical has
+#      many extra words (e.g. "I'm Quitting Hero" vs "I'm Quitting the Hero's Party").
+#      Stopwords stripped: the, a, an, of, in, on, at, and, or, is.
+# Gating remains: >=0.8 auto-accept; 0.4-0.8 review queue; <0.4 no_anilist_match.
+
+_ENHANCED_STOPWORDS = frozenset({"the", "a", "an", "of", "in", "on", "at", "and", "or", "is"})
+
+
 def _enhanced_ratio(raw: str, canonical: str) -> float:
     """Compute enhanced similarity: base Levenshtein, then substring and word-overlap boosts.
 
-    Returns the boosted ratio (capped at 0.85) when the base ratio is below 0.8
+    Returns the boosted ratio (capped at 1.0) when the base ratio is below 0.8
     but structural similarity is high. Returns the base ratio otherwise.
     """
     base = _levenshtein(raw, canonical)
@@ -657,6 +722,14 @@ def _enhanced_ratio(raw: str, canonical: str) -> float:
         overlap = len(raw_words & canon_words) / max(len(raw_words | canon_words), 1)
         if overlap >= 0.75:
             return max(base, 0.85)
+
+    # Common-word-count boost: 50%+ of raw non-stopword tokens appear in canonical
+    raw_nonstop = raw_words - _ENHANCED_STOPWORDS
+    canon_nonstop = canon_words - _ENHANCED_STOPWORDS
+    if raw_nonstop:
+        common = raw_nonstop & canon_nonstop
+        if len(common) / len(raw_nonstop) >= 0.5:
+            return min(base + 0.15, 1.0)
 
     return base
 
@@ -786,8 +859,26 @@ def _process_single_title(
     # Clean trailing punctuation before AniList query (e.g. "Rage of Bahamut •")
     clean_title = re.sub(r"[\s•·.,;:!?\-–—]+$", "", raw_title).strip()
 
-    # AniList query (always — signal_type is a hint, not a gate)
-    media, ratio, err = _query_anilist_best(clean_title, clean_title, logger)
+    # Normalization cascade: normalized (if different), then original, then colon-prefix.
+    # Stops early once ratio >= 0.6.
+    normalized = _normalize_for_anilist(clean_title)
+    query_cascade: list[str] = []
+    if normalized and normalized != clean_title:
+        query_cascade.append(normalized)
+    query_cascade.append(clean_title)
+    if ":" in clean_title:
+        colon_prefix = clean_title.split(":", 1)[0].strip()
+        if (len(colon_prefix.split()) >= 3 or len(colon_prefix) >= 10) and colon_prefix not in query_cascade:
+            query_cascade.append(colon_prefix)
+
+    media, ratio, err = None, 0.0, None
+    for cascade_query in query_cascade:
+        media, ratio, err = _query_anilist_best(cascade_query, clean_title, logger)
+        if err or ratio >= 0.6:
+            break
+        logger.debug(
+            f"[anime] cascade '{cascade_query}' ratio={ratio:.2f} — trying next"
+        )
 
     # Try alternate query (romaji) when primary ratio is low
     if not err and ratio < 0.5 and alt_query:
@@ -853,10 +944,40 @@ def _process_single_title(
         country = _COUNTRY_MAP.get(media.get("countryOfOrigin") or "", "")
         debut_year = (media.get("startDate") or {}).get("year")
         studio_edges = (media.get("studios") or {}).get("edges") or []
-        studios = list({
+        _animation = sorted({
             e["node"]["name"] for e in studio_edges
             if e.get("node", {}).get("isAnimationStudio")
         })
+        if _animation:
+            studios = _animation
+        else:
+            _main = sorted({
+                e["node"]["name"] for e in studio_edges
+                if e.get("isMain")
+            })
+            studios = _main if _main else sorted({
+                e["node"]["name"] for e in studio_edges
+                if (e.get("node") or {}).get("name")
+            })
+
+    # Single-word false-match guard: "Domain" → "DOMINO" (ratio ≈ 0.83) passes
+    # the ≥0.8 threshold but is clearly wrong.  When both sides are a single
+    # token, they differ case-insensitively, and ratio < 0.95, force review.
+    # Punct-strip exemption: "Gangsta" → "GANGSTA." and "'CLAYMORE'" → "Claymore"
+    # differ only in punctuation/case — same title, skip the guard.
+    if canonical_title:
+        raw_words = raw_title.split() if raw_title else []
+        canon_words = canonical_title.split()
+        if (
+            len(raw_words) == 1
+            and len(canon_words) == 1
+            and raw_title.lower() != canonical_title.lower()
+            and ratio < 0.95
+        ):
+            raw_alnum = re.sub(r"[^a-z0-9]", "", raw_title.lower())
+            can_alnum = re.sub(r"[^a-z0-9]", "", canonical_title.lower())
+            if raw_alnum != can_alnum:
+                needs_review = True
 
     dedup_key = str(anilist_id) if anilist_id else (canonical_title or raw_title).lower().strip()
 

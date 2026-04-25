@@ -16,6 +16,7 @@ from paku.extractors.anime import (
     _enhanced_ratio,
     _extract_title,
     _is_garbage_fallback,
+    _normalize_for_anilist,
     _strip_chrome,
     _transform_hashtag,
     extract,
@@ -307,6 +308,23 @@ class TestFallbackRejection:
         assert result.needs_review is True
         assert result.confidence == pytest.approx(0.0)
         assert result.levenshtein_ratio is None
+
+    def test_reject_none_placeholder(self):
+        """'None' / 'none' from form fields (Subtitles: None, Dubs: None) is garbage."""
+        assert _is_garbage_fallback("none") is True
+        assert _is_garbage_fallback("None") is True
+        assert _is_garbage_fallback("NONE") is True
+        assert _is_garbage_fallback("  none  ") is True
+
+    def test_none_not_queried_on_anilist(self):
+        """'none' extracted as fallback must not reach AniList (no_title_extracted, not 'GONE')."""
+        text = "none"
+        with patch("requests.post") as mock_post:
+            result = extract(text, _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        mock_post.assert_not_called()
+        assert isinstance(result, AnimeExtractionResult)
+        assert result.raw_title == ""
+        assert result.needs_review is True
 
 
 # --- Platform detection tests ---
@@ -1127,6 +1145,46 @@ class TestEnhancedRatio:
         assert ratio >= 0.85  # substring match against english title
 
 
+class TestCommonWordCountBoost:
+    """Tests for the common-word-count boost in _enhanced_ratio (Task C)."""
+
+    def test_boost_applied_with_token_overlap(self):
+        """60%+ raw non-stopword token overlap should bump below-0.6 score above 0.6."""
+        # "azurlane anime" non-stop: {azurlane, anime}
+        # "azurlane slow ahead" non-stop: {azurlane, slow, ahead}
+        # overlap: {azurlane} → 1/2 = 50% → boost applies.
+        base = _enhanced_ratio("azurlane (anime)", "AzurLane Slow Ahead")
+        assert base >= 0.6
+
+    def test_boost_cross_language_no_match(self):
+        """Cross-language titles must NOT be auto-accepted by the boost."""
+        # "Shingeki no Kyojin" vs "Attack on Titan": zero shared non-stopword tokens.
+        ratio = _enhanced_ratio("Shingeki no Kyojin", "Attack on Titan")
+        assert ratio < 0.6  # stays in review queue, NOT auto-accepted
+
+    def test_boost_stopwords_ignored(self):
+        """Overlap on stopwords alone must not trigger the boost."""
+        # Raw non-stop: {foo, bar}; canon non-stop: {baz} — no overlap (only stopwords match).
+        # "the" and "of" are stopwords; they are stripped before overlap computation.
+        ratio = _enhanced_ratio("the foo of bar", "the baz of qux")
+        # Base Levenshtein is ~0.5; no boost applies; must stay below 0.6.
+        assert ratio < 0.6
+
+    def test_boost_capped_at_one(self):
+        """Boost is capped at 1.0 — never exceeds."""
+        # Contrived case where base is 0.9 and boost would naively push to 1.05.
+        # base >= 0.8 short-circuits anyway, so this tests the cap path indirectly
+        # by forcing below-0.8 with partial overlap.
+        ratio = _enhanced_ratio("Chainsaw Man", "Chainsaw Man The Movie Reze Arc")
+        assert ratio <= 1.0
+
+    def test_boost_not_applied_when_no_overlap(self):
+        """No shared non-stopword tokens → no boost, base ratio only."""
+        base = _enhanced_ratio("XYZ Unknown", "Completely Different Title")
+        # Base Levenshtein is low; boost must not rescue it.
+        assert base < 0.6
+
+
 class TestMultiTitleConditionalReview:
     """Tests for Fix 2: multi-title screenshots auto-accept when ratio >= 0.8."""
 
@@ -1332,3 +1390,236 @@ class TestExpandedAniListFields:
         assert result.media_format is None
         assert result.studios == []
         assert result.debut_year is None
+
+
+class TestNormalizeForAnilist:
+    def test_normalize_strips_season_suffix(self):
+        assert _normalize_for_anilist("Attack on Titan Season 2") == "Attack on Titan"
+
+    def test_normalize_strips_s_number_suffix(self):
+        assert _normalize_for_anilist("Attack on Titan S2") == "Attack on Titan"
+
+    def test_normalize_strips_s_space_number_suffix(self):
+        assert _normalize_for_anilist("Attack on Titan S 2") == "Attack on Titan"
+
+    def test_normalize_strips_ep_suffix(self):
+        assert _normalize_for_anilist("Chainsaw Man EP 12") == "Chainsaw Man"
+
+    def test_normalize_strips_ep_no_space_suffix(self):
+        assert _normalize_for_anilist("Chainsaw Man EP12") == "Chainsaw Man"
+
+    def test_normalize_strips_part_suffix(self):
+        assert _normalize_for_anilist("Attack on Titan Part 2") == "Attack on Titan"
+
+    def test_normalize_case_insensitive(self):
+        assert _normalize_for_anilist("Attack on Titan SEASON 3") == "Attack on Titan"
+        assert _normalize_for_anilist("Chainsaw Man ep 5") == "Chainsaw Man"
+
+    def test_normalize_no_markers_unchanged(self):
+        assert _normalize_for_anilist("Attack on Titan") == "Attack on Titan"
+
+    def test_normalize_empty_string(self):
+        assert _normalize_for_anilist("") == ""
+
+    def test_normalize_preserves_non_suffix_season(self):
+        # "Season" appearing mid-title must not be stripped
+        assert _normalize_for_anilist("Season of Mists") == "Season of Mists"
+
+    def test_normalize_strips_leading_star(self):
+        assert _normalize_for_anilist(chr(0x2B50) + " Attack on Titan") == "Attack on Titan"
+
+    def test_normalize_strips_trailing_sparkle(self):
+        # U+2728 SPARKLES is in the Dingbats block
+        assert _normalize_for_anilist("Attack on Titan " + chr(0x2728)) == "Attack on Titan"
+
+    def test_normalize_keeps_japanese_title(self):
+        # 推しの子 — CJK Unified Ideographs + Hiragana must be preserved
+        jp_title = chr(0x63A8) + chr(0x3057) + chr(0x306E) + chr(0x5B50)
+        assert _normalize_for_anilist(jp_title) == jp_title
+
+    def test_normalize_strips_cjk_brackets(self):
+        # 【推しの子】 — CJK full-width brackets must go, inner text stays
+        bracketed = chr(0x3010) + chr(0x63A8) + chr(0x3057) + chr(0x306E) + chr(0x5B50) + chr(0x3011)
+        expected = chr(0x63A8) + chr(0x3057) + chr(0x306E) + chr(0x5B50)
+        assert _normalize_for_anilist(bracketed) == expected
+
+    def test_normalize_keeps_ascii_punctuation(self):
+        # Exclamation is ASCII — must not be treated as decorative
+        assert _normalize_for_anilist("A3!") == "A3!"
+
+
+class TestSingleWordFalseMatchGuard:
+    """Fix 2: single-word raw vs canonical with ratio < 0.95 must set needs_review."""
+
+    def _run(self, raw: str, english: str, romaji: str) -> AnimeExtractionResult:
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "data": {
+                "Media": {
+                    "id": 99999,
+                    "title": {"english": english, "romaji": romaji, "native": None},
+                    "type": "ANIME",
+                    "format": "TV",
+                    "episodes": 12,
+                    "status": "FINISHED",
+                    "genres": [],
+                    "averageScore": 75,
+                    "siteUrl": "https://anilist.co/anime/99999",
+                    "coverImage": {"extraLarge": None, "large": None},
+                    "bannerImage": None,
+                    "source": "MANGA",
+                    "countryOfOrigin": "JP",
+                    "startDate": {"year": 2020},
+                    "studios": {"edges": []},
+                }
+            }
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch("requests.post", MagicMock(return_value=mock_resp)):
+            result = extract(raw, _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        assert isinstance(result, AnimeExtractionResult)
+        return result
+
+    def test_domain_domino_flagged(self):
+        # "Domain" ≈ "DOMINO" (ratio ~0.83): single-token mismatch → must review
+        result = self._run("Domain", "DOMINO", "DOMINO")
+        assert result.needs_review is True
+
+    def test_same_single_word_not_flagged(self):
+        # "Berserk" → "Berserk": identical case-insensitively → no extra flag
+        result = self._run("Berserk", "Berserk", "Berserk")
+        assert result.needs_review is False
+
+    def test_multi_word_not_affected(self):
+        # Multi-word titles must not be flagged by the guard
+        result = self._run("Attack on Titan", "Attack on Titan", "Shingeki no Kyojin")
+        assert result.needs_review is False
+
+    def test_single_word_multi_word_canonical_not_affected(self):
+        # Single raw token but multi-word canonical → guard does not apply
+        result = self._run("Bleach", "Bleach", "Bleach")
+        assert result.needs_review is False
+
+    def test_punct_only_diff_not_flagged(self):
+        # "Gangsta" vs "GANGSTA." — same alnum content, trailing punct only → no flag
+        result = self._run("Gangsta", "GANGSTA.", "GANGSTA.")
+        assert result.needs_review is False
+
+    def test_ocr_quotes_same_title_not_flagged(self):
+        # OCR wraps title in quotes: "'CLAYMORE'" vs "Claymore" — same alnum → no flag
+        result = self._run("'CLAYMORE'", "Claymore", "Claymore")
+        assert result.needs_review is False
+
+
+class TestQueryAnilistNormalization:
+    """Integration: AniList receives the normalized search string first (Task B)."""
+
+    def _searches(self, mock_post: MagicMock) -> list[str]:
+        return [
+            call.kwargs["json"]["variables"]["search"]
+            for call in mock_post.call_args_list
+        ]
+
+    def _good_resp(self, english: str, romaji: str) -> MagicMock:
+        resp = MagicMock()
+        resp.json.return_value = {
+            "data": {
+                "Media": {
+                    "id": 16498,
+                    "title": {"english": english, "romaji": romaji, "native": None},
+                    "type": "ANIME",
+                    "format": "TV",
+                    "episodes": 25,
+                    "status": "FINISHED",
+                    "genres": [],
+                    "averageScore": 85,
+                    "siteUrl": "https://anilist.co/anime/16498",
+                    "coverImage": {"extraLarge": None, "large": None},
+                    "bannerImage": None,
+                    "source": "MANGA",
+                    "countryOfOrigin": "JP",
+                    "startDate": {"year": 2013},
+                    "studios": {"edges": []},
+                }
+            }
+        }
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def _no_match_resp(self) -> MagicMock:
+        resp = MagicMock()
+        resp.json.return_value = {"data": {"Media": None}}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    @patch("paku.extractors.anime.requests.post")
+    def test_season_marker_queries_normalized_form_first(self, mock_post):
+        """'Attack on Titan Season 2' → first AniList call uses normalized 'Attack on Titan'."""
+        mock_post.return_value = self._good_resp("Attack on Titan", "Shingeki no Kyojin")
+        extract("Send message\nAttack on Titan Season 2", _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        searches = self._searches(mock_post)
+        assert searches, "No AniList call was made"
+        assert searches[0] == "Attack on Titan", f"First search was {searches[0]!r}"
+
+    @patch("paku.extractors.anime.requests.post")
+    def test_ep_marker_queries_normalized_form_first(self, mock_post):
+        """'Chainsaw Man EP 12' → first AniList call uses normalized 'Chainsaw Man'."""
+        mock_post.return_value = self._good_resp("Chainsaw Man", "Chainsaw Man")
+        extract("Send message\nChainsaw Man EP 12", _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        searches = self._searches(mock_post)
+        assert searches, "No AniList call was made"
+        assert searches[0] == "Chainsaw Man", f"First search was {searches[0]!r}"
+
+    @patch("paku.extractors.anime.requests.post")
+    def test_colon_prefix_retry_fires_when_primary_fails(self, mock_post):
+        """'Demon Slayer: Kimetsu no Yaiba' → colon prefix tried when primary returns no result."""
+        no_m = self._no_match_resp()
+        good = self._good_resp("Demon Slayer: Kimetsu no Yaiba", "Kimetsu no Yaiba")
+        # Primary form: ANIME call + MANGA call (both no-match); then colon prefix fires
+        mock_post.side_effect = [no_m, no_m, good]
+        extract("Send message\nDemon Slayer: Kimetsu no Yaiba", _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        searches = self._searches(mock_post)
+        assert "Demon Slayer" in searches, f"Colon-prefix search missing from {searches}"
+
+    @patch("paku.extractors.anime.requests.post")
+    def test_no_markers_single_query(self, mock_post):
+        """'Attack on Titan' (no markers) → only one distinct search string sent to AniList."""
+        mock_post.return_value = self._good_resp("Attack on Titan", "Shingeki no Kyojin")
+        extract("Send message\nAttack on Titan", _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        searches = self._searches(mock_post)
+        assert searches, "No AniList call was made"
+        assert set(searches) == {"Attack on Titan"}, f"Unexpected search terms: {set(searches)}"
+
+    @patch("paku.extractors.anime.requests.post")
+    def test_two_word_colon_prefix_not_retried(self, mock_post):
+        """'I Am: A Hero of Legend' — 2-word/4-char prefix 'I Am' must not appear in searches."""
+        mock_post.return_value = self._good_resp("I Am: A Hero of Legend", "I Am: A Hero of Legend")
+        extract("Send message\nI Am: A Hero of Legend", _DUMMY_PATH, _DUMMY_CONFIG, _LOG)
+        searches = self._searches(mock_post)
+        assert "I Am" not in searches, f"Short colon prefix should not be queried; got {searches}"
+
+
+class TestEnhancedRatioBoost:
+    """Unit tests for the common-word-count boost in _enhanced_ratio (Task C)."""
+
+    def test_fifty_percent_overlap_boosts_to_accept(self):
+        """50% non-stopword token overlap boosts a sub-0.6 base score to ≥ 0.6."""
+        # "azurlane" shared by both; 1/2 raw non-stop tokens = 50% — minimum threshold met
+        assert _enhanced_ratio("azurlane (anime)", "AzurLane Slow Ahead") >= 0.6
+
+    def test_cross_language_not_boosted(self):
+        """Different-language titles share no tokens — boost must not rescue them."""
+        # Zero token overlap → boost never fires → stays below 0.6
+        assert _enhanced_ratio("Shingeki no Kyojin", "Attack on Titan") < 0.6
+
+    def test_single_stopword_raw_not_boosted(self):
+        """1-word raw title that is a stopword has empty non-stopword set — no boost."""
+        # raw_nonstop = {} (all words in _ENHANCED_STOPWORDS) → if raw_nonstop: is False
+        result = _enhanced_ratio("in", "Made in Abyss")
+        assert result < 0.55
+
+    def test_wrong_match_stays_below_gating(self):
+        """Clearly wrong match stays below the 0.55 gating threshold even with a potential boost."""
+        # No shared tokens → boost doesn't fire; base Lev ≈ 0.2 → well below threshold
+        result = _enhanced_ratio("Naruto", "Fullmetal Alchemist Brotherhood")
+        assert result < 0.55

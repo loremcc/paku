@@ -76,6 +76,13 @@ _AUTHOR_REPO_RE = re.compile(r"([\w.-]{1,39})\s*/\s*([\w.-]{1,100})")
 # Trailing punctuation to strip from matched URLs.
 _TRAILING_PUNCT = set(".,)]\"\\'>;")
 
+# Single-segment path values that indicate a navigation chrome element rather
+# than the project/content the screenshot is actually about.
+_NAV_PATH_SEGMENTS = frozenset({
+    "donate", "sponsor", "about", "contact", "support",
+    "contribute", "login", "signup", "subscribe", "privacy", "terms",
+})
+
 
 # --- Noise stripping ---
 
@@ -287,6 +294,21 @@ def _tier1(cleaned_text: str) -> URLExtractionResult | None:
                     url = url + cont.group(1)
 
         snip = _snippet(cleaned_text, start, end)
+
+        # Nav-path downgrade: URL is real but the single path segment is a
+        # navigation element (donate, about, …), not the content being shared.
+        path_segments = [s for s in url.split("/")[3:] if s]
+        if len(path_segments) == 1 and path_segments[0].lower() in _NAV_PATH_SEGMENTS:
+            return URLExtractionResult(
+                confidence=0.7,
+                needs_review=True,
+                source_screenshot="",
+                extracted_at="",
+                resolved_url=url,
+                raw_text_snippet=snip,
+                extraction_tier=1,
+            )
+
         return URLExtractionResult(
             confidence=0.9,
             needs_review=False,

@@ -115,7 +115,14 @@ def write_anime_csv(
 
     for res in seen.values():
         canonical = getattr(res, "canonical_title", None)
-        raw = getattr(res, "raw_title", "")
+        raw = getattr(res, "raw_title", "") or ""
+        # Skip entries with no resolvable title.
+        if not canonical and not raw:
+            continue
+        # Skip unresolved (no AniList match) entries flagged for review — these
+        # are multi-title blobs or poor-OCR rows that add no signal to Notion.
+        if not canonical and getattr(res, "needs_review", False):
+            continue
         media_format = getattr(res, "media_format", None)
         source = getattr(res, "source", None)
         debut_year = getattr(res, "debut_year", None)
