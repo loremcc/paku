@@ -4,8 +4,22 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paku"
-version = "0.1.0"
-description = "Instagram screenshot data pipeline"
+version = "1.0.0"
+description = "CLI pipeline that extracts anime titles, URLs, and recipes from Instagram screenshots"
+readme = "README.md"
+license = { text = "MPL-2.0" }
+authors = [{ name = "loremcc" }]
+keywords = ["instagram", "ocr", "anime", "anilist", "data-pipeline"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Utilities",
+]
 requires-python = ">=3.11"
 dependencies = [
     "click>=8.1",
@@ -34,6 +48,9 @@ web = [
     "python-multipart>=0.0.9",
     "httpx>=0.27",
 ]
+
+[project.urls]
+Repository = "https://github.com/loremcc/paku"
 
 [project.scripts]
 paku = "paku.cli:cli"

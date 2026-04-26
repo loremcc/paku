@@ -293,6 +293,22 @@ def _tier1(cleaned_text: str) -> URLExtractionResult | None:
                 if cont:
                     url = url + cont.group(1)
 
+        # Handle newline-wrapped URLs where a long path/hash is split across lines.
+        # e.g. "https://gist.github.com/User/a7d\n4eec3833baee4971a0ee54b08f322"
+        # Trigger: URL ends at a newline boundary and the next line is a bare
+        # alphanumeric token (no spaces, no scheme) that looks like a hash tail.
+        char_after = cleaned_text[end:end + 1]
+        if char_after in ("\n", ""):
+            line_end = end if char_after == "\n" else end
+            next_start = end + 1 if char_after == "\n" else end
+            next_line_end = cleaned_text.find("\n", next_start)
+            if next_line_end == -1:
+                next_line_end = len(cleaned_text)
+            next_line = cleaned_text[next_start:next_line_end].strip()
+            # Accept only bare alphanumeric continuations (hash tail, no spaces, no dots).
+            if re.match(r"^[a-zA-Z0-9]{4,}$", next_line):
+                url = url + next_line
+
         snip = _snippet(cleaned_text, start, end)
 
         # Nav-path downgrade: URL is real but the single path segment is a

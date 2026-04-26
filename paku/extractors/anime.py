@@ -103,6 +103,10 @@ def _transform_hashtag(tag: str) -> str:
 _SEASON_MARKER_RE = re.compile(r"\s+(?:Season|S)\s*\d+$", re.IGNORECASE)
 _EP_MARKER_RE = re.compile(r"\s+EP\s*\d+$", re.IGNORECASE)
 _PART_MARKER_RE = re.compile(r"\s+Part\s+\d+$", re.IGNORECASE)
+# Mid-string — emoji/bullet separator followed by episode count metadata.
+_EPISODES_LABEL_RE = re.compile(r"\s+[^\w\s]*\s*Episodes?\s*[:\-–]\s*\d+.*$", re.IGNORECASE)
+# Leading OCR artifact from partially-visible card edge — "...TITLE" -> "TITLE".
+_LEADING_ELLIPSIS_RE = re.compile(r"^[.…⋯]+\s*")
 
 # Leading/trailing decorative unicode — keeps ASCII + CJK letters intact.
 _DECORATIVE_RANGES = (
@@ -125,9 +129,11 @@ def _normalize_for_anilist(title: str) -> str:
     """
     if not title:
         return title
-    out = _SEASON_MARKER_RE.sub("", title)
+    out = _LEADING_ELLIPSIS_RE.sub("", title)
+    out = _SEASON_MARKER_RE.sub("", out)
     out = _EP_MARKER_RE.sub("", out)
     out = _PART_MARKER_RE.sub("", out)
+    out = _EPISODES_LABEL_RE.sub("", out)
     out = _DECORATIVE_RE.sub("", out).strip()
     return out
 
@@ -388,6 +394,29 @@ def _detect_multi_titles(text: str) -> list[str]:
     if carousel:
         return carousel
 
+    # Episode-delimited watermark format: "TITLE\nN EPISODES\nWATERMARK" repeating.
+    # _TITLE_EPISODE_RE matches each block; ≥2 hits = multi-title image.
+    # Look back one line per match: titles split across two OCR lines
+    # (e.g. "PING PONG\nTHE ANIMATION\n11 EPISODES") are reconstructed by prepending
+    # the preceding line when it isn't an episode count, watermark, or garbage.
+    episode_iters = list(_TITLE_EPISODE_RE.finditer(text))
+    if len(episode_iters) >= 2:
+        full_titles: list[str] = []
+        for m in episode_iters:
+            title = m.group(1).strip()
+            preceding_lines = [l for l in text[:m.start()].splitlines() if l.strip()]
+            if preceding_lines:
+                prev = preceding_lines[-1].strip()
+                if (2 <= len(prev) <= 60
+                        and not _EPISODE_COUNT_LINE_RE.search(prev)
+                        and not _is_garbage_fallback(prev)
+                        and prev == prev.upper()        # all-caps like the card title
+                        and re.search(r"[A-Z]", prev)  # must have at least one letter
+                        ):
+                    title = prev + " " + title
+            full_titles.append(title)
+        return [t for t in full_titles if not _is_garbage_fallback(t)]
+
     return []
 
 
@@ -435,9 +464,12 @@ def _is_garbage_fallback(text: str) -> bool:
 # --- Title + episode count (Pattern I) ---
 
 _TITLE_EPISODE_RE = re.compile(
-    r"^(.{3,80})\n\s*\d+\s+Episodes?\s*$",
+    r"^(.{3,80})\n\s*\d+\s+(?:Episodes?|Movies?)\s*$",
     re.MULTILINE | re.IGNORECASE,
 )
+
+# Matches any episode/movie count line — used to reject false preceding-line prefixes.
+_EPISODE_COUNT_LINE_RE = re.compile(r"\bEpisodes?\b|\bMovies?\b", re.IGNORECASE)
 
 # --- Release card detection (Pattern H) ---
 
