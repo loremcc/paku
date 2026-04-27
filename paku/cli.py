@@ -157,6 +157,7 @@ def _run_batch(
         label="Processing",
         show_pos=True,
     ) as bar:
+
         def _callback(current: int, total: int, name: str) -> None:
             advance = current - progress_state["bar_value"]
             if advance > 0:

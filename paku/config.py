@@ -71,13 +71,10 @@ def validate_config(config: dict) -> None:
         for db_key in ("anime_db_id", "url_db_id", "recipe_db_id"):
             if not notion.get(db_key, ""):
                 raise ValueError(
-                    f"notion.{db_key} is required when notion.token is set. "
-                    f"Add it to config.yaml."
+                    f"notion.{db_key} is required when notion.token is set. Add it to config.yaml."
                 )
 
     langextract = config.get("langextract", {})
     if langextract.get("api_key", ""):
         if not langextract.get("model_id", ""):
-            raise ValueError(
-                "langextract.model_id is required when langextract.api_key is set."
-            )
+            raise ValueError("langextract.model_id is required when langextract.api_key is set.")

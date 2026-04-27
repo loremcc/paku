@@ -9,8 +9,8 @@ from pathlib import Path
 import requests
 from PIL import Image
 
-from .base import OCREngine
 from ..models import OcrResult
+from .base import OCREngine
 
 _MAX_IMAGE_PX = 1024
 _HEALTH_TIMEOUT_S = 2

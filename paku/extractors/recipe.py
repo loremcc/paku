@@ -3,7 +3,6 @@ from __future__ import annotations
 # Recipe extractor for Instagram screenshots and web recipe card OCR text.
 # Detects ingredient anchor, parses qty/unit splits, assigns confidence, routes review.
 # Structural template: follows url.py / anime.py conventions.
-
 import re
 from datetime import datetime, timezone
 from logging import Logger
@@ -16,19 +15,51 @@ from .url import strip_noise
 # --- Unit definitions (longer forms first to ensure correct greedy match) ---
 
 _UNITS = [
-    "tablespoons?", "teaspoons?", "tbsp", "tsp",
+    "tablespoons?",
+    "teaspoons?",
+    "tbsp",
+    "tsp",
     r"fl\.?\s*oz",
     "cups?",
     r"cucchiai(?:no|ni|o)?",  # cucchiaio/cucchiai/cucchiaino/cucchiaini (Italian tbsp/tsp)
-    "litres?", "liters?", "millilitres?", "milliliters?", "dl", "cl", "ml", "l",
-    "kilograms?", "grams?", "milligrams?", "pounds?", "ounces?",
-    "kg", "mg", "oz", "lbs?", "g",
-    "large", "medium", "small", "big",
+    "litres?",
+    "liters?",
+    "millilitres?",
+    "milliliters?",
+    "dl",
+    "cl",
+    "ml",
+    "l",
+    "kilograms?",
+    "grams?",
+    "milligrams?",
+    "pounds?",
+    "ounces?",
+    "kg",
+    "mg",
+    "oz",
+    "lbs?",
+    "g",
+    "large",
+    "medium",
+    "small",
+    "big",
     r"pizzic(?:o|hi)",  # pizzico/pizzichi (Italian: pinch)
-    r"pinch(?:es)?", r"handful(?:s)?", r"bunch(?:es)?",
-    r"cloves?", r"sprigs?", r"slices?", r"cans?", r"pieces?",
-    r"bags?", r"knobs?", r"strips?", r"stalks?", r"heads?",
-    r"rashers?", r"fillets?",
+    r"pinch(?:es)?",
+    r"handful(?:s)?",
+    r"bunch(?:es)?",
+    r"cloves?",
+    r"sprigs?",
+    r"slices?",
+    r"cans?",
+    r"pieces?",
+    r"bags?",
+    r"knobs?",
+    r"strips?",
+    r"stalks?",
+    r"heads?",
+    r"rashers?",
+    r"fillets?",
 ]
 
 _INGREDIENT_ANCHOR_RE = re.compile("|".join(INGREDIENT_ANCHORS), re.IGNORECASE)
@@ -44,9 +75,13 @@ _UNIT_START_RE = re.compile(r"^(" + "|".join(_UNITS) + r")\b", re.IGNORECASE)
 
 # Unicode fractions → float
 _FRACTIONS: dict[str, float] = {
-    "½": 0.5, "¼": 0.25, "¾": 0.75,
-    "⅓": 1 / 3, "⅔": 2 / 3,
-    "⅛": 0.125, "⅜": 0.375,
+    "½": 0.5,
+    "¼": 0.25,
+    "¾": 0.75,
+    "⅓": 1 / 3,
+    "⅔": 2 / 3,
+    "⅛": 0.125,
+    "⅜": 0.375,
 }
 _FRACTION_CHARS = "".join(_FRACTIONS)
 
@@ -80,10 +115,12 @@ _TRAILING_QTY_RE = re.compile(
 
 _LIST_PREFIX_RE = re.compile(r"^[\s•\-\*·–—+]+|^\d+[.)]\s+")
 
-# Parenthesized metric equivalent: "(450 g)", "(150 ml)" — giallozafferano / recipe website reversed format
+# Parenthesized metric equivalent: "(450 g)", "(150 ml)"
+# giallozafferano / recipe website reversed format
 _METRIC_PARENS_RE = re.compile(r"\(\s*(\d+(?:[.,]\d+)?)\s*(g|kg|ml|l)\s*\)", re.IGNORECASE)
 
-# Strip trailing garbled imperial qty+unit from reversed-format lines after metric parens are removed
+# Strip trailing garbled imperial qty+unit from reversed-format lines
+# after metric parens are removed
 # e.g. "Whole milk 134 cup" → "Whole milk", "Egg yolks 2 12 tbsp" → "Egg yolks"
 _IMPERIAL_TRAIL_RE = re.compile(
     r"\s+\d[\d\s/.,¾½¼⅔⅓]*\s*(?:cups?|tablespoons?|teaspoons?|tbsp|tsp|fl\.?\s*oz)\s*$",
@@ -110,51 +147,124 @@ _HANDLE_RE = re.compile(r"^@?([a-zA-Z0-9_.][a-zA-Z0-9_.]{2,29})$")
 _HANDLE_FOLLOW_RE = re.compile(
     r"^@?([a-zA-Z0-9_.][a-zA-Z0-9_.]{2,29})\s+Follow(?:ing)?\s*$", re.IGNORECASE
 )
-_CHROME_HANDLES = frozenset({
-    "follow", "following", "lowing", "home", "inbox", "explore", "profile", "message",
-    "share", "comments", "likes", "reels", "friends",
-    "posts", "stampa", "safari", "chrome", "firefox", "edge", "search", "print",
-    "instagram",
-})
+_CHROME_HANDLES = frozenset(
+    {
+        "follow",
+        "following",
+        "lowing",
+        "home",
+        "inbox",
+        "explore",
+        "profile",
+        "message",
+        "share",
+        "comments",
+        "likes",
+        "reels",
+        "friends",
+        "posts",
+        "stampa",
+        "safari",
+        "chrome",
+        "firefox",
+        "edge",
+        "search",
+        "print",
+        "instagram",
+    }
+)
 
 # Common TLDs that mark a string as a domain, not an Instagram handle
-_COMMON_TLDS = frozenset({
-    "com", "org", "net", "io", "it", "fr", "de", "uk", "gov", "edu",
-    "co", "app", "dev", "ru", "jp", "cn", "br", "es", "nl", "pl",
-})
+_COMMON_TLDS = frozenset(
+    {
+        "com",
+        "org",
+        "net",
+        "io",
+        "it",
+        "fr",
+        "de",
+        "uk",
+        "gov",
+        "edu",
+        "co",
+        "app",
+        "dev",
+        "ru",
+        "jp",
+        "cn",
+        "br",
+        "es",
+        "nl",
+        "pl",
+    }
+)
 
 # Matches a handle embedded in a line decorated with non-ASCII symbols (e.g. "☐ username ✪")
 _HANDLE_DECORATED_RE = re.compile(r"^[^\x20-\x7E]*\s*@?([a-zA-Z0-9_.]{3,30})\s*[^\x20-\x7E]*$")
 
 _UNIT_CANONICAL: dict[str, str] = {
-    "tablespoon": "tbsp", "tablespoons": "tbsp",
-    "teaspoon": "tsp", "teaspoons": "tsp",
-    "gram": "g", "grams": "g",
-    "kilogram": "kg", "kilograms": "kg",
-    "milligram": "mg", "milligrams": "mg",
-    "millilitre": "ml", "milliliter": "ml", "millilitres": "ml", "milliliters": "ml",
-    "litre": "l", "liter": "l", "litres": "l", "liters": "l",
-    "ounce": "oz", "ounces": "oz",
-    "cucchiaio": "tbsp", "cucchiai": "tbsp",
-    "cucchiaino": "tsp", "cucchiaini": "tsp",
-    "pizzico": "pinch", "pizzichi": "pinch",
-    "pound": "lb", "pounds": "lb", "lbs": "lb",
-    "cup": "cup", "cups": "cup",
-    "clove": "clove", "cloves": "clove",
-    "sprig": "sprig", "sprigs": "sprig",
-    "slice": "slice", "slices": "slice",
-    "can": "can", "cans": "can",
-    "piece": "piece", "pieces": "piece",
-    "bag": "bag", "bags": "bag",
-    "handful": "handful", "handfuls": "handful",
-    "bunch": "bunch", "bunches": "bunch",
-    "pinch": "pinch", "pinches": "pinch",
-    "knob": "knob", "knobs": "knob",
-    "strip": "strip", "strips": "strip",
-    "stalk": "stalk", "stalks": "stalk",
-    "head": "head", "heads": "head",
-    "rasher": "rasher", "rashers": "rasher",
-    "fillet": "fillet", "fillets": "fillet",
+    "tablespoon": "tbsp",
+    "tablespoons": "tbsp",
+    "teaspoon": "tsp",
+    "teaspoons": "tsp",
+    "gram": "g",
+    "grams": "g",
+    "kilogram": "kg",
+    "kilograms": "kg",
+    "milligram": "mg",
+    "milligrams": "mg",
+    "millilitre": "ml",
+    "milliliter": "ml",
+    "millilitres": "ml",
+    "milliliters": "ml",
+    "litre": "l",
+    "liter": "l",
+    "litres": "l",
+    "liters": "l",
+    "ounce": "oz",
+    "ounces": "oz",
+    "cucchiaio": "tbsp",
+    "cucchiai": "tbsp",
+    "cucchiaino": "tsp",
+    "cucchiaini": "tsp",
+    "pizzico": "pinch",
+    "pizzichi": "pinch",
+    "pound": "lb",
+    "pounds": "lb",
+    "lbs": "lb",
+    "cup": "cup",
+    "cups": "cup",
+    "clove": "clove",
+    "cloves": "clove",
+    "sprig": "sprig",
+    "sprigs": "sprig",
+    "slice": "slice",
+    "slices": "slice",
+    "can": "can",
+    "cans": "can",
+    "piece": "piece",
+    "pieces": "piece",
+    "bag": "bag",
+    "bags": "bag",
+    "handful": "handful",
+    "handfuls": "handful",
+    "bunch": "bunch",
+    "bunches": "bunch",
+    "pinch": "pinch",
+    "pinches": "pinch",
+    "knob": "knob",
+    "knobs": "knob",
+    "strip": "strip",
+    "strips": "strip",
+    "stalk": "stalk",
+    "stalks": "stalk",
+    "head": "head",
+    "heads": "head",
+    "rasher": "rasher",
+    "rashers": "rasher",
+    "fillet": "fillet",
+    "fillets": "fillet",
 }
 
 
@@ -182,17 +292,29 @@ def _handle_from_line(stripped: str) -> str | None:
     m = _HANDLE_FOLLOW_RE.match(stripped)
     if m:
         h = m.group(1)
-        if h.lower() not in _CHROME_HANDLES and not _is_domain(h) and not (h == h.upper() and h.isalpha()):
+        if (
+            h.lower() not in _CHROME_HANDLES
+            and not _is_domain(h)
+            and not (h == h.upper() and h.isalpha())
+        ):
             return h
     m = _HANDLE_RE.match(stripped)
     if m:
         h = m.group(1)
-        if h.lower() not in _CHROME_HANDLES and not _is_domain(h) and not (h == h.upper() and h.isalpha()):
+        if (
+            h.lower() not in _CHROME_HANDLES
+            and not _is_domain(h)
+            and not (h == h.upper() and h.isalpha())
+        ):
             return h
     m = _HANDLE_DECORATED_RE.match(stripped)
     if m:
         h = m.group(1)
-        if h.lower() not in _CHROME_HANDLES and not _is_domain(h) and not (h == h.upper() and h.isalpha()):
+        if (
+            h.lower() not in _CHROME_HANDLES
+            and not _is_domain(h)
+            and not (h == h.upper() and h.isalpha())
+        ):
             return h
     return None
 
@@ -242,10 +364,10 @@ def _extract_notes(name: str) -> tuple[str, str | None]:
     """Strip trailing parenthesized or comma-delimited notes from name."""
     m = _NOTES_PARENS_RE.search(name)
     if m:
-        return name[:m.start()].strip(), m.group(1).strip()
+        return name[: m.start()].strip(), m.group(1).strip()
     m = _NOTES_COMMA_RE.search(name)
     if m:
-        return name[:m.start()].strip(), m.group(1).strip()
+        return name[: m.start()].strip(), m.group(1).strip()
     return name.strip(), None
 
 
@@ -300,11 +422,11 @@ def _parse_ingredient_line(line: str) -> Ingredient | None:
             m_qty = _QUANTITY_RE.match(cleaned)
             if m_qty:
                 qty = _parse_qty(m_qty.group(1))
-                remainder = cleaned[m_qty.end():].strip()
+                remainder = cleaned[m_qty.end() :].strip()
                 m_unit = _UNIT_START_RE.match(remainder)
                 if m_unit:
                     unit = _normalize_unit(m_unit.group(1))
-                    name = remainder[m_unit.end():].strip()
+                    name = remainder[m_unit.end() :].strip()
                 else:
                     name = remainder
             else:
@@ -315,15 +437,19 @@ def _parse_ingredient_line(line: str) -> Ingredient | None:
                     metric_qty = _parse_qty(m_metric.group(1))
                     metric_unit = _normalize_unit(m_metric.group(2))
                     if metric_qty is not None:
-                        # Strip all parenthesized groups (metric + secondary notes like "- (about 4 medium)")
+                        # Strip all parenthesized groups
+                        # (metric + secondary notes like "- (about 4 medium)")
                         without_parens = re.sub(r"\s*[-–—]?\s*\([^)]+\)", "", cleaned).strip()
                         # Strip trailing garbled imperial qty+unit (e.g. "134 cup", "2 12 tbsp")
                         clean_name = _IMPERIAL_TRAIL_RE.sub("", without_parens).strip()
-                        # Strip residual trailing lone digit (mixed-number OCR fragment: "Whole milk 1")
+                        # Strip residual trailing lone digit
+                        # (mixed-number OCR fragment: "Whole milk 1")
                         clean_name = re.sub(r"\s+\d+\s*$", "", clean_name).strip() or without_parens
                         name, notes = _extract_notes(clean_name)
                         if name:
-                            return Ingredient(name=name, quantity=metric_qty, unit=metric_unit, notes=notes)
+                            return Ingredient(
+                                name=name, quantity=metric_qty, unit=metric_unit, notes=notes
+                            )
 
                 # Trailing-qty fallback: "Ingredient name 500 g" or "Ingredient name ¾ cup"
                 cleaned_for_trail = re.sub(r"\s*[-–—]?\s*\([^)]+\)\s*$", "", cleaned)
@@ -377,7 +503,8 @@ def _find_block_end(lines: list[str], start: int) -> int:
         # Italian/web end-of-content signals
         if re.search(
             r"aggiungi\s+alla\s+lista|trova\s+il\s+negozio|vieni\s+a\s+trovarci",
-            stripped, re.IGNORECASE,
+            stripped,
+            re.IGNORECASE,
         ):
             break
         # Dots-only separator artifact (". . .") — signals end of content block
@@ -532,7 +659,11 @@ def _extract_source_account(lines: list[str], search_end: int | None = None) -> 
         m = _HANDLE_FOLLOW_RE.match(stripped)
         if m:
             h = m.group(1)
-            if h.lower() not in _CHROME_HANDLES and not _is_domain(h) and not (h == h.upper() and h.isalpha()):
+            if (
+                h.lower() not in _CHROME_HANDLES
+                and not _is_domain(h)
+                and not (h == h.upper() and h.isalpha())
+            ):
                 return h
 
     for line in scan_lines[:8]:
@@ -544,12 +675,20 @@ def _extract_source_account(lines: list[str], search_end: int | None = None) -> 
         m = _HANDLE_RE.match(stripped)
         if m:
             h = m.group(1)
-            if h.lower() not in _CHROME_HANDLES and not _is_domain(h) and not (h == h.upper() and h.isalpha()):
+            if (
+                h.lower() not in _CHROME_HANDLES
+                and not _is_domain(h)
+                and not (h == h.upper() and h.isalpha())
+            ):
                 return h
         m = _HANDLE_DECORATED_RE.match(stripped)
         if m:
             h = m.group(1)
-            if h.lower() not in _CHROME_HANDLES and not _is_domain(h) and not (h == h.upper() and h.isalpha()):
+            if (
+                h.lower() not in _CHROME_HANDLES
+                and not _is_domain(h)
+                and not (h == h.upper() and h.isalpha())
+            ):
                 return h
 
     return None
@@ -564,7 +703,7 @@ def _extract_instructions(lines: list[str], ing_end: int) -> str | None:
         if _INSTRUCTION_ANCHOR_RE.search(lines[i].strip()):
             inst_start = i + 1
             break
-    inst_lines = [l.strip() for l in lines[inst_start:] if l.strip()]
+    inst_lines = [ln.strip() for ln in lines[inst_start:] if ln.strip()]
     return "\n".join(inst_lines) if inst_lines else None
 
 

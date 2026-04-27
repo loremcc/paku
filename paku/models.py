@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -61,7 +60,9 @@ class AnimeExtractionResult(ExtractionResult):
     native_title: str | None = None  # AniList native (Japanese) title
     romaji: str | None = None  # AniList romaji title
     media_type: str | None = None  # "ANIME" | "MANGA" | None
-    media_source: str = "unknown"  # "anime" | "manga" | "donghua" | "western" | "anilist_app" | "unknown"
+    media_source: str = (
+        "unknown"  # "anime" | "manga" | "donghua" | "western" | "anilist_app" | "unknown"
+    )
     episodes: int | None = None
     status: str | None = None
     genres: list[str] = Field(default_factory=list)
@@ -76,10 +77,14 @@ class AnimeExtractionResult(ExtractionResult):
     debut_year: int | None = None
     studios: list[str] = Field(default_factory=list)  # animation studios only
     extraction_mode: str = "fast"  # "fast" | "smart" | "anilist_app"
-    title_pattern: str | None = None  # "label" | "quoted" | "numbered" | "year_tagged" | "romaji" | "hashtag" | "italian_signal" | "fallback"
+    # title_pattern values: "label" | "quoted" | "numbered" | "year_tagged"
+    # | "romaji" | "hashtag" | "italian_signal" | "fallback"
+    title_pattern: str | None = None
     extraction_context: str = "recommendation"  # "recommendation" | "discussion"
     multi_title_detected: bool = False
-    dedup_key: str | None = None  # anilist_id as str, else canonical_title.lower() or raw_title.lower()
+    dedup_key: str | None = (
+        None  # anilist_id as str, else canonical_title.lower() or raw_title.lower()
+    )
     levenshtein_ratio: float | None = None  # always logged, even for high-confidence matches
 
 

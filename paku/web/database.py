@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -178,7 +177,9 @@ class Database:
 
     def update_user_status(self, anime_id: int, user_status: str) -> AnimeEntry | None:
         if user_status not in USER_STATUSES:
-            raise ValueError(f"Invalid user_status: {user_status!r}. Must be one of {USER_STATUSES}")
+            raise ValueError(
+                f"Invalid user_status: {user_status!r}. Must be one of {USER_STATUSES}"
+            )
         with self._connect() as conn:
             cur = conn.execute(
                 "UPDATE anime_entries SET user_status = ? WHERE id = ?",
@@ -304,7 +305,8 @@ class Database:
     def record_screenshot(self, path: str, content_type: str, result_count: int) -> None:
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO screenshots_processed (path, content_type, processed_at, result_count) "
+                "INSERT INTO screenshots_processed"
+                " (path, content_type, processed_at, result_count) "
                 "VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(path) DO UPDATE SET "
                 "content_type = excluded.content_type, "
@@ -349,9 +351,7 @@ _INSERT_SQL = (
 )
 
 _UPDATE_SQL = (
-    "UPDATE anime_entries SET "
-    + ", ".join(f"{c} = :{c}" for c in _ROW_COLUMNS)
-    + " WHERE id = :id"
+    "UPDATE anime_entries SET " + ", ".join(f"{c} = :{c}" for c in _ROW_COLUMNS) + " WHERE id = :id"
 )
 
 

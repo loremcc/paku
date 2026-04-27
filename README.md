@@ -1,54 +1,51 @@
 # paku
 
-CLI tool that turns Instagram screenshots into structured data. Built to process a personal backlog of ~3000 screenshots — extracting anime titles, GitHub URLs, and recipes into JSON, CSV, and Notion.
+[![CI](https://github.com/loremcc/paku/actions/workflows/ci.yml/badge.svg)](https://github.com/loremcc/paku/actions/workflows/ci.yml)
+
+CLI tool that turns Instagram screenshots into structured data. Feed it a screenshot and it runs OCR (Google Cloud Vision), classifies the content (anime recommendation, GitHub link, recipe), extracts the relevant data, and writes it in a usable format.
 
 ## What it does
 
-You feed it an Instagram screenshot. It runs OCR (Google Cloud Vision), figures out what kind of content it's looking at (anime recommendation, GitHub link, recipe), extracts the relevant data, and writes it out in a usable format.
-
 Three extractors, each purpose-built:
 
-- **URL** (complete, v0.2) — 4-tier extraction cascade validated on 34 real screenshots. Regex-matches full URLs (github.com, arxiv.org, etc.), detects non-GitHub domains via curated TLD allowlist, reconstructs GitHub `author/repo` from repo cards, and stubs project-name-only cases for manual review. Handles browser bar truncation (with and without OCR-visible ellipsis), hyphen-broken URLs, filters social platform URLs, strips noise, and routes uncertain results to the review queue. Phase 1 gate passed: Tier 1 100%, Tier 2-3 71.4%, Tier 4 100%, zero false positives.
-- **Anime** (complete, v0.3) — 10-pattern title extraction cascade with AniList GraphQL enrichment. Strips Instagram UI chrome (15+ filter categories), detects platform context (AniList app, TikTok, Threads), handles multi-title posts (carousels, numbered lists). Enhanced Levenshtein ratio (substring containment + word-overlap boost) gates auto-acceptance (>= 0.8) vs review queue. Phase 2 gate passed: 30/30 = 100% auto-accepted.
-- **Recipe** (complete, v0.4) — multilingual ingredient block detection (English + Italian anchors), splits each line into quantity + unit + name (never stored as "100g" — always `{qty: 100, unit: "g"}`), handles unicode fractions, wrapped OCR lines, reversed metric-parens format (giallozafferano.com style), music-credit title rejection, instructions extraction, and source account detection. Outputs `.txt` + `.csv` + `.json`. Phase 3 gate passed: 10/10 = 100%.
+- **URL** — 4-tier extraction cascade validated on 34 real screenshots. Regex-matches full URLs (github.com, arxiv.org, etc.), detects non-GitHub domains via curated TLD allowlist, reconstructs GitHub `author/repo` from repo cards, and stubs project-name-only cases for manual review. Handles browser bar truncation (with and without OCR-visible ellipsis), hyphen-broken URLs, filters social platform URLs. Phase 1 gate passed: Tier 1 100%, Tier 2-3 71.4%, Tier 4 100%, zero false positives.
+- **Anime** — 10-pattern title extraction cascade with AniList GraphQL enrichment. Strips Instagram UI chrome (15+ filter categories), detects platform context (AniList app, TikTok, Threads), handles multi-title posts (carousels, numbered lists). Enhanced Levenshtein ratio (substring containment + word-overlap boost) gates auto-acceptance (>= 0.8) vs review queue. Phase 2 gate passed: 30/30 = 100% auto-accepted.
+- **Recipe** — multilingual ingredient block detection (English + Italian anchors), splits each line into quantity + unit + name (never stored as "100g" — always `{qty: 100, unit: "g"}`), handles unicode fractions, wrapped OCR lines, reversed metric-parens format (giallozafferano.com style), instructions extraction, and source account detection. Outputs `.txt` + `.csv` + `.json`. Phase 3 gate passed: 10/10 = 100%.
 
-Anything the pipeline isn't confident about lands in `review_queue.json` instead of being silently discarded.
+Anything the pipeline isn't confident about is queued for manual review instead of being silently discarded.
 
-## Current state
+`paku serve` starts a local dashboard (FastAPI + vanilla JS SPA) for browsing the extracted collection, uploading new screenshots, and managing watch status. No cloud accounts required; SQLite-backed, runs on 127.0.0.1. Phase 5 gate passed.
 
-**v0.6 — Dashboard + product identity**
+## Status
 
-All three extractors are implemented and gate-verified. Batch mode is ready — point `paku digest` at a directory and it processes every image, writes a checkpoint after each one, and picks up where it left off if interrupted. 454 tests pass (2 skipped for missing credentials). Phases 1–3 and 5 gates all passed.
-
-`paku serve` starts a local dashboard (FastAPI + vanilla JS SPA) for browsing the extracted collection, uploading new screenshots, and managing watch status. No cloud accounts required; SQLite-backed, runs on 127.0.0.1.
-
-Batch produces three consolidated outputs: `anime_titles.txt` / `urls.txt` / `recipe_titles.txt` (one entry per line, deduped), plus `anime_export.csv` (9 exact Notion "Full Catalog" property columns, ready to import). Per-image JSON is written throughout.
+**v1.0.0** — all three extractors and the dashboard are complete. 513 tests pass. CI runs on every push: lint, test matrix (Python 3.11 + 3.12), wheel build.
 
 `--smart` flag enables confidence-gated re-run: when fast-path extraction returns confidence < 0.4, the pipeline re-OCRs with a local Ollama VLM (Gemma 4) for richer text and re-extracts. Falls back cleanly if Ollama is unavailable.
 
-Phase 4 gate passed (2026-04-24): 1281/1287 images processed, 765 anime JSONs → 599-row `anime_export.csv` (507 AniList-enriched), failed=1 (0.08%), review_queue=356.
+Batch mode produces three consolidated outputs: `anime_titles.txt` / `urls.txt` / `recipe_titles.txt` (one entry per line, deduped), plus `anime_export.csv` (9 property columns, ready to import). Per-image JSON is written throughout.
 
 ## Install
+
+```bash
+pip install paku            # core + stub OCR (for testing)
+pip install "paku[ocr]"    # + Google Cloud Vision (real OCR)
+pip install "paku[web]"    # + FastAPI dashboard (paku serve)
+pip install "paku[smart]"  # + Ollama VLM (--smart flag)
+```
+
+Then set OCR credentials — either:
+- `GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json` (env var), or
+- `google_vision.api_key: <key>` in `config.yaml`
+
+Google Cloud Vision free tier covers 1,000 images/month.
+
+### Development install
 
 ```bash
 git clone https://github.com/loremcc/paku.git
 cd paku
 pip install -e ".[dev]"
 ```
-
-For real OCR (not the stub engine):
-
-```bash
-pip install "paku[ocr]"    # adds google-cloud-vision
-pip install "paku[smart]"  # enables --smart flag (Ollama VLM re-run)
-pip install "paku[web]"    # adds fastapi + uvicorn for paku serve
-```
-
-Then set credentials — either:
-- `GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json` (env var), or
-- `google_vision.api_key: <key>` in `config.yaml`
-
-Google Cloud Vision free tier covers 1,000 images/month.
 
 ## Usage
 
@@ -83,7 +80,7 @@ Batch mode writes a `.paku_checkpoint` file in the output directory. Each succes
 
 Consolidated outputs written after a batch completes:
 - `--output txt` → `anime_titles.txt`, `urls.txt`, `recipe_titles.txt` (one entry per line, deduped, sorted)
-- `--output csv` with `--mode anime` → `anime_export.csv` (9 Notion property columns, deduped by AniList ID)
+- `--output csv` with `--mode anime` → `anime_export.csv` (9 property columns, deduped by AniList ID)
 
 ## Config
 
@@ -92,7 +89,7 @@ Copy `config.yaml.template` to `config.yaml` and fill in your keys. The file is 
 ```yaml
 google_vision:
   api_key: ""              # or use GOOGLE_APPLICATION_CREDENTIALS env var
-  credentials_file: ""     # or path to service account JSON file
+  credentials_file: ""     # path to service account JSON file
 
 anilist:
   base_url: "https://graphql.anilist.co"
@@ -101,12 +98,6 @@ anilist:
 ollama:
   base_url: "http://192.168.1.114:11434"  # LAN host running Ollama
   model: "gemma4-paku:latest"             # custom model (see Modelfile.paku)
-
-notion:
-  token: ""
-  anime_db_id: ""
-  url_db_id: ""
-  recipe_db_id: ""
 ```
 
 Everything works with defaults except OCR credentials. The `ollama` section is optional — `--smart` falls back gracefully if Ollama is unavailable.
@@ -114,7 +105,7 @@ Everything works with defaults except OCR credentials. The `ollama` section is o
 ## Tests
 
 ```bash
-# All tests (454 currently)
+# All tests (513 currently)
 python -m pytest
 
 # With coverage
@@ -134,8 +125,9 @@ Test fixtures go in `tests/fixtures/`. Real screenshots are gitignored — popul
 | v0.2 | URL extractor | Done (gate passed) |
 | v0.3 | Anime extractor + AniList | Done (gate passed) |
 | v0.4 | Recipe extractor | Done (gate passed) |
-| v0.5 | Batch processing + anime Notion CSV | Done (gate passed 2026-04-24) |
+| v0.5 | Batch processing + anime CSV | Done (gate passed 2026-04-24) |
 | v0.6 | Dashboard + product identity | Done (gate passed 2026-04-23) |
+| v1.0 | Polish + open source | Done (2026-04-26) |
 
 Each version has an explicit gate — a minimum accuracy threshold or throughput test measured on real screenshots — that must pass before the next version starts.
 
@@ -161,7 +153,7 @@ paku/
   outputs/
     json_out.py         # Pretty-printed JSON writer (per image)
     txt_out.py          # Per-image text writer + write_batch_txt() (consolidated, deduped)
-    csv_out.py          # Recipe ingredient CSV (per image) + write_anime_csv() (post-batch Notion import)
+    csv_out.py          # Recipe ingredient CSV (per image) + write_anime_csv() (post-batch import)
   web/
     database.py         # SQLite layer: Database class, ingest_pipeline_result, Pydantic models
     app.py              # FastAPI factory create_app(db_path), 9 endpoints
@@ -171,4 +163,4 @@ paku/
 
 ## License
 
-This project is licensed under the [Apache License, Version 2.0](LICENSE).
+This project is licensed under the [Mozilla Public License 2.0](LICENSE).

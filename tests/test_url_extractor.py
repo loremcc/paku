@@ -233,6 +233,45 @@ class TestTier1:
         assert "github.com" in result.raw_text_snippet
 
 
+class TestTier1NewlineWrap:
+    """_tier1() must append a bare hash continuation on the next line (2026-04-26)."""
+
+    def test_hash_continuation_appended(self):
+        # URL truncated at newline; next line is a bare alphanumeric hash → appended
+        text = "https://gist.github.com/User/a7d\n4eec3833baee4971a0ee54b08f322"
+        result = _tier1(text)
+        assert result is not None
+        assert result.resolved_url.endswith("4eec3833baee4971a0ee54b08f322")
+
+    def test_no_continuation_when_next_line_has_space(self):
+        # Next line contains a space → must NOT be appended
+        text = "https://gist.github.com/User/a7d\nfollowed by text"
+        result = _tier1(text)
+        assert result is not None
+        assert "followed" not in result.resolved_url
+
+    def test_no_continuation_when_next_line_has_dot(self):
+        # Next line contains a dot → must NOT be appended
+        text = "https://gist.github.com/User/a7d\nnext.line"
+        result = _tier1(text)
+        assert result is not None
+        assert "next.line" not in result.resolved_url
+
+    def test_no_continuation_when_next_line_too_short(self):
+        # Next line has fewer than 4 characters → must NOT be appended
+        text = "https://gist.github.com/User/a7d\nabc"
+        result = _tier1(text)
+        assert result is not None
+        assert not result.resolved_url.endswith("abc")
+
+    def test_normal_url_no_continuation(self):
+        # URL followed by unrelated text on the same/next line → no alteration
+        text = "https://github.com/user/repo\nCheck this out"
+        result = _tier1(text)
+        assert result is not None
+        assert result.resolved_url == "https://github.com/user/repo"
+
+
 # ─── Tier 2 tests ───
 
 

@@ -665,6 +665,79 @@ class TestMultiTitleDetection:
         assert len(titles) == 0
 
 
+class TestDetectMultiTitlesCarousel:
+    """Episode-delimited carousel branch: look-back guard logic (2026-04-26)."""
+
+    def test_two_line_title_lookback_accepted(self):
+        # All-caps preceding line "PING PONG" is accepted and prepended
+        text = (
+            "PING PONG\n"
+            "THE ANIMATION\n"
+            "11 EPISODES\n"
+            "TORADORA\n"
+            "24 EPISODES"
+        )
+        titles = _detect_multi_titles(text)
+        assert any("PING PONG" in t for t in titles)
+        assert any("THE ANIMATION" in t for t in titles)
+
+    def test_caption_lookback_rejected(self):
+        # Mixed-case Instagram caption must NOT be prepended to the first title
+        text = (
+            "These are my favourite anime of the season\n"
+            "TORADORA\n"
+            "24 EPISODES\n"
+            "PING PONG THE ANIMATION\n"
+            "11 EPISODES"
+        )
+        titles = _detect_multi_titles(text)
+        assert titles, "episode-delimited branch must produce results"
+        assert not any(t.startswith("These") for t in titles)
+
+    def test_movies_extension_matched(self):
+        # "MOVIES" variant triggers the branch just like "EPISODES"
+        text = (
+            "KIZUMONOGATARI\n"
+            "3 MOVIES\n"
+            "VINLAND SAGA\n"
+            "24 EPISODES"
+        )
+        titles = _detect_multi_titles(text)
+        assert any("KIZUMONOGATARI" in t for t in titles)
+
+    def test_episode_count_line_not_prepended(self):
+        # Preceding line that itself looks like an episode count must be rejected
+        text = (
+            "12 EPISODES\n"
+            "TORADORA\n"
+            "24 EPISODES\n"
+            "PING PONG THE ANIMATION\n"
+            "11 EPISODES"
+        )
+        titles = _detect_multi_titles(text)
+        assert titles, "episode-delimited branch must produce results"
+        assert not any(t.startswith("12 EPISODES") for t in titles)
+
+    def test_short_preceding_line_rejected(self):
+        # Single-character preceding line must be rejected by the len guard
+        text = (
+            "X\n"
+            "TORADORA\n"
+            "24 EPISODES\n"
+            "PING PONG THE ANIMATION\n"
+            "11 EPISODES"
+        )
+        titles = _detect_multi_titles(text)
+        assert titles, "episode-delimited branch must produce results"
+        assert not any(t.startswith("X ") for t in titles)
+
+    def test_minimum_two_matches_required(self):
+        # Single match must NOT trigger the episode-delimited branch
+        text = "TORADORA\n24 EPISODES"
+        titles = _detect_multi_titles(text)
+        assert not any("24 EPISODES" in t for t in titles)
+
+
 # --- Confidence assignment tests ---
 
 
@@ -1446,6 +1519,24 @@ class TestNormalizeForAnilist:
     def test_normalize_keeps_ascii_punctuation(self):
         # Exclamation is ASCII — must not be treated as decorative
         assert _normalize_for_anilist("A3!") == "A3!"
+
+
+class TestNormalizeLeadingEllipsis:
+    """_normalize_for_anilist() must strip leading ASCII dots and Unicode ellipsis (2026-04-26)."""
+
+    def test_ascii_dots_stripped(self):
+        assert _normalize_for_anilist("...VINLAND SAGA") == "VINLAND SAGA"
+
+    def test_unicode_ellipsis_stripped(self):
+        assert _normalize_for_anilist("…ATTACK ON TITAN") == "ATTACK ON TITAN"
+
+    def test_no_leading_dots(self):
+        assert _normalize_for_anilist("HINAMATSURI") == "HINAMATSURI"
+
+    def test_dots_only_in_middle_preserved(self):
+        # Leading dots stripped; dots embedded in the middle must stay
+        result = _normalize_for_anilist("...A...B")
+        assert result == "A...B"
 
 
 class TestSingleWordFalseMatchGuard:

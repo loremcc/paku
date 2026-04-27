@@ -3,7 +3,6 @@ from __future__ import annotations
 # Extracts anime/manga titles from Instagram screenshot OCR text.
 # Priority: AniList-enriched result when ratio >= 0.8; review queue otherwise.
 # Structural template: follows url.py conventions (one public extract(), helpers private).
-
 import re
 import time
 from datetime import datetime, timezone
@@ -47,7 +46,7 @@ _COUNTRY_MAP: dict[str, str] = {
 # Pattern A: explicit label line (handles emoji between label and separator)
 # Continuation line is optional — captured UNLESS the next line starts with a metadata keyword
 # (Genres, Episodes, Status, etc.) which prevents "Genres: Action..." from being appended.
-_META_CONT = r"(?:\n(?!(?:Genres?|Episodes?|Status|(?:Average\s+)?Score|Rating|Type|Format|Studios?|Source|Season|Cast|Duration)\s*:)[^\n]+)?"
+_META_CONT = r"(?:\n(?!(?:Genres?|Episodes?|Status|(?:Average\s+)?Score|Rating|Type|Format|Studios?|Source|Season|Cast|Duration)\s*:)[^\n]+)?"  # noqa: E501
 _LABEL_RE = re.compile(
     r"[^\w\n]*(?:anime\s*name|•\s*anime|name\s*(?:of\s*(?:the\s*)?anime)?)"
     r"[^::\-–\n]{0,20}[:\-–]+\s*([^\n]{3,120}" + _META_CONT + r")",
@@ -110,15 +109,13 @@ _LEADING_ELLIPSIS_RE = re.compile(r"^[.…⋯]+\s*")
 
 # Leading/trailing decorative unicode — keeps ASCII + CJK letters intact.
 _DECORATIVE_RANGES = (
-    r" -⁯"            # general punctuation (bullets, en/em dash)
-    r"☀-➿"            # misc symbols + dingbats (★ ✦ ✨)
-    r"⬀-⯿"            # misc symbols and arrows (⭐)
-    r"\U0001F300-\U0001FAFF"    # emoji
-    r"　-〿"            # CJK symbols and punctuation (【 】)
+    r" -⁯"  # general punctuation (bullets, en/em dash)
+    r"☀-➿"  # misc symbols + dingbats (★ ✦ ✨)
+    r"⬀-⯿"  # misc symbols and arrows (⭐)
+    r"\U0001F300-\U0001FAFF"  # emoji
+    r"　-〿"  # CJK symbols and punctuation (【 】)
 )
-_DECORATIVE_RE = re.compile(
-    rf"^[\s{_DECORATIVE_RANGES}]+|[\s{_DECORATIVE_RANGES}]+$"
-)
+_DECORATIVE_RE = re.compile(rf"^[\s{_DECORATIVE_RANGES}]+|[\s{_DECORATIVE_RANGES}]+$")
 
 
 def _normalize_for_anilist(title: str) -> str:
@@ -136,6 +133,7 @@ def _normalize_for_anilist(title: str) -> str:
     out = _EPISODES_LABEL_RE.sub("", out)
     out = _DECORATIVE_RE.sub("", out).strip()
     return out
+
 
 # Multi-title detection
 _MULTI_DATE_RE = re.compile(
@@ -233,12 +231,25 @@ def _strip_chrome(text: str, platform: str) -> str:
                 continue
 
         # Bottom nav / standalone button labels
-        if stripped in {"Home", "Inbox", "Explore", "Profile", "Anime", "Manga", "Discover", "Feed", "Likes"}:
+        if stripped in {
+            "Home",
+            "Inbox",
+            "Explore",
+            "Profile",
+            "Anime",
+            "Manga",
+            "Discover",
+            "Feed",
+            "Likes",
+        }:
             continue
 
         # Section headers (Reels tab, Explore tab, Comments sheet)
         # Also handles combined tab labels: "Reels Friends", "Explore Friends D"
-        if re.match(r"^(?:Comments|For\s+you|(?:Explore|Friends|Reels)(?:\s+\w+)*)\s*[🤪🤝✨]*\s*[Vv>]?\s*$", stripped):
+        if re.match(
+            r"^(?:Comments|For\s+you|(?:Explore|Friends|Reels)(?:\s+\w+)*)\s*[🤪🤝✨]*\s*[Vv>]?\s*$",
+            stripped,
+        ):
             continue
 
         # Pure timestamp tokens (3h, 2d, 7w)
@@ -278,7 +289,12 @@ def _strip_chrome(text: str, platform: str) -> str:
             continue
 
         # Action prompts / input placeholders
-        if re.match(r"^(?:Add\s+(?:a\s+)?comment|Reply to|See translation|Send message|Not interested|What do you think)", stripped, re.IGNORECASE):
+        if re.match(
+            r"^(?:Add\s+(?:a\s+)?comment|Reply to|See translation"
+            r"|Send message|Not interested|What do you think)",
+            stripped,
+            re.IGNORECASE,
+        ):
             continue
 
         # "View N more replies" (generic, not just TikTok)
@@ -312,8 +328,7 @@ def _strip_chrome(text: str, platform: str) -> str:
 
         # TikTok chrome
         if platform == "tiktok" and (
-            stripped in {"Comments", "Reply"}
-            or re.match(r"^by\s+\w+", stripped, re.IGNORECASE)
+            stripped in {"Comments", "Reply"} or re.match(r"^by\s+\w+", stripped, re.IGNORECASE)
         ):
             continue
 
@@ -344,7 +359,7 @@ def _detect_carousel_titles(text: str) -> list[str]:
     Requires 2+ marker occurrences and 2+ extracted titles to trigger.
     """
     lines = text.splitlines()
-    marker_count = sum(1 for l in lines if _CAROUSEL_MARKER_RE.match(l.strip()))
+    marker_count = sum(1 for ln in lines if _CAROUSEL_MARKER_RE.match(ln.strip()))
     if marker_count < 2:
         return []
 
@@ -404,15 +419,16 @@ def _detect_multi_titles(text: str) -> list[str]:
         full_titles: list[str] = []
         for m in episode_iters:
             title = m.group(1).strip()
-            preceding_lines = [l for l in text[:m.start()].splitlines() if l.strip()]
+            preceding_lines = [ln for ln in text[: m.start()].splitlines() if ln.strip()]
             if preceding_lines:
                 prev = preceding_lines[-1].strip()
-                if (2 <= len(prev) <= 60
-                        and not _EPISODE_COUNT_LINE_RE.search(prev)
-                        and not _is_garbage_fallback(prev)
-                        and prev == prev.upper()        # all-caps like the card title
-                        and re.search(r"[A-Z]", prev)  # must have at least one letter
-                        ):
+                if (
+                    2 <= len(prev) <= 60
+                    and not _EPISODE_COUNT_LINE_RE.search(prev)
+                    and not _is_garbage_fallback(prev)
+                    and prev == prev.upper()  # all-caps like the card title
+                    and re.search(r"[A-Z]", prev)  # must have at least one letter
+                ):
                     title = prev + " " + title
             full_titles.append(title)
         return [t for t in full_titles if not _is_garbage_fallback(t)]
@@ -434,7 +450,10 @@ _GARBAGE_PATTERNS: list[re.Pattern[str]] = [
     # "Followed by X"
     re.compile(r"^Followed\s+by\s+", re.IGNORECASE),
     # Username + generic social caption ("animelif3 Anime I don't see anyone talking about")
-    re.compile(r"^[\w.][\w.]{1,30}\s+(?:Anime\s+I\s+|The\s+best\s+|Donald\s+|I\s+don'?t\s+|Check\s+out\s+|New\s+details?\s+)", re.IGNORECASE),
+    re.compile(
+        r"^[\w.][\w.]{1,30}\s+(?:Anime\s+I\s+|The\s+best\s+|Donald\s+|I\s+don'?t\s+|Check\s+out\s+|New\s+details?\s+)",
+        re.IGNORECASE,
+    ),
     # Engagement/community count lines ("COLLECTING ALL ANIME FANS (23k/25k")
     re.compile(r"\(\d+[KkMm]?/\d+[KkMm]?\s*"),
     # "... more" truncated caption
@@ -493,7 +512,12 @@ def _extract_title(text: str, full_text: str | None = None) -> tuple[str | None,
     """Run pattern cascade A→G. Returns (raw_title, title_pattern)."""
 
     # Pattern A: explicit label (join continuation line if OCR wrapped the title)
-    m = _LABEL_RE.search(text) or _LABEL_CALLED_RE.search(text) or _LABEL_NAME_IS_RE.search(text) or _LABEL_BARE_ANIME_RE.search(text)
+    m = (
+        _LABEL_RE.search(text)
+        or _LABEL_CALLED_RE.search(text)
+        or _LABEL_NAME_IS_RE.search(text)
+        or _LABEL_BARE_ANIME_RE.search(text)
+    )
     if m:
         return m.group(1).replace("\n", " ").strip(), "label"
 
@@ -504,7 +528,7 @@ def _extract_title(text: str, full_text: str | None = None) -> tuple[str | None,
         reject = candidate.endswith("?")
         if not reject:
             lines = text.splitlines()
-            match_line_idx = text[:m.start()].count("\n")
+            match_line_idx = text[: m.start()].count("\n")
             for offset in range(-2, 3):
                 idx = match_line_idx + offset
                 if 0 <= idx < len(lines) and _PLOT_CONTEXT_RE.search(lines[idx]):
@@ -534,7 +558,9 @@ def _extract_title(text: str, full_text: str | None = None) -> tuple[str | None,
         stripped = line.strip()
         if len(stripped) < 3:
             continue
-        if re.search(r"[一-龯ぁ-んァ-ヶ]", stripped) or re.search(r"[ōūāīē]", stripped, re.IGNORECASE):
+        if re.search(r"[一-龯ぁ-んァ-ヶ]", stripped) or re.search(
+            r"[ōūāīē]", stripped, re.IGNORECASE
+        ):
             return stripped, "romaji"
 
     # Pattern F: hashtag (scan full text for 3+ hashtag trigger, not just chrome-stripped)
@@ -571,7 +597,11 @@ def _extract_title(text: str, full_text: str | None = None) -> tuple[str | None,
             i += 1
             continue
         alpha_chars = [c for c in line if c.isalpha()]
-        if not alpha_chars or not all(c.isupper() for c in alpha_chars) or not _ALLCAPS_LINE_RE.match(line):
+        if (
+            not alpha_chars
+            or not all(c.isupper() for c in alpha_chars)
+            or not _ALLCAPS_LINE_RE.match(line)
+        ):
             i += 1
             continue
         # Skip lines that are anchors themselves (e.g. "SEASON 2" starting a block)
@@ -585,7 +615,12 @@ def _extract_title(text: str, full_text: str | None = None) -> tuple[str | None,
         while j < len(rc_lines):
             nxt = rc_lines[j].strip()
             nxt_alpha = [c for c in nxt if c.isalpha()]
-            if nxt and nxt_alpha and all(c.isupper() for c in nxt_alpha) and _ALLCAPS_LINE_RE.match(nxt):
+            if (
+                nxt
+                and nxt_alpha
+                and all(c.isupper() for c in nxt_alpha)
+                and _ALLCAPS_LINE_RE.match(nxt)
+            ):
                 # If this line is an anchor, it validates the block — don't join it
                 if _RELEASE_ANCHORS_RE.match(nxt):
                     anchor_found = True
@@ -631,7 +666,8 @@ def _extract_title(text: str, full_text: str | None = None) -> tuple[str | None,
 
     # Fallback: longest non-chrome, non-hashtag line — with rejection guard
     candidates = [
-        line.strip() for line in text.splitlines()
+        line.strip()
+        for line in text.splitlines()
         if len(line.strip()) >= 3
         and not line.strip().startswith("#")
         and not re.match(r"^\d+[hmwdHMWD]$", line.strip())
@@ -656,9 +692,7 @@ _ANILIST_MIN_INTERVAL = 0.7
 _anilist_last_call: float = 0.0
 
 
-def _query_anilist(
-    search: str, media_type: str, logger: Logger
-) -> tuple[dict | None, str | None]:
+def _query_anilist(search: str, media_type: str, logger: Logger) -> tuple[dict | None, str | None]:
     """POST to AniList GraphQL. Returns (media_dict | None, error_type | None).
 
     Proactively throttles to ~85 RPM to stay under AniList's 90 RPM limit.
@@ -685,7 +719,9 @@ def _query_anilist(
                 return None, None
             if resp.status_code == 429:
                 wait = int(resp.headers.get("Retry-After", _ANILIST_BACKOFF[min(attempt, 2)]))
-                logger.warning(f"[anime] AniList rate-limited, waiting {wait}s (attempt {attempt + 1})")
+                logger.warning(
+                    f"[anime] AniList rate-limited, waiting {wait}s (attempt {attempt + 1})"
+                )
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
@@ -835,14 +871,17 @@ def _assign_confidence(
 # --- AniList app parse path ---
 
 
-def _parse_anilist_app(
-    ocr_text: str, screenshot_path: str, now: str
-) -> AnimeExtractionResult:
+def _parse_anilist_app(ocr_text: str, screenshot_path: str, now: str) -> AnimeExtractionResult:
     stripped = _strip_chrome(ocr_text, "anilist_app")
-    lines = [l.strip() for l in stripped.splitlines() if l.strip()]
+    lines = [ln.strip() for ln in stripped.splitlines() if ln.strip()]
     # First long centered line is the title
     raw_title = next(
-        (l for l in lines if len(l) >= 3 and not any(s in l for s in ["ADD TO LIST", "AVERAGE SCORE", "MOST POPULAR"])),
+        (
+            ln
+            for ln in lines
+            if len(ln) >= 3
+            and not any(s in ln for s in ["ADD TO LIST", "AVERAGE SCORE", "MOST POPULAR"])
+        ),
         lines[0] if lines else "unknown",
     )
     dedup_key = raw_title.lower().strip()
@@ -885,7 +924,9 @@ def _process_single_title(
     else:
         western_match = next((s for s in _WESTERN_SIGNALS if s in stripped_text), None)
         if western_match:
-            logger.debug(f"[anime] western signal matched: '{western_match}' — querying AniList anyway")
+            logger.debug(
+                f"[anime] western signal matched: '{western_match}' — querying AniList anyway"
+            )
             signal_type = "western"
 
     # Clean trailing punctuation before AniList query (e.g. "Rage of Bahamut •")
@@ -900,7 +941,9 @@ def _process_single_title(
     query_cascade.append(clean_title)
     if ":" in clean_title:
         colon_prefix = clean_title.split(":", 1)[0].strip()
-        if (len(colon_prefix.split()) >= 3 or len(colon_prefix) >= 10) and colon_prefix not in query_cascade:
+        if (
+            len(colon_prefix.split()) >= 3 or len(colon_prefix) >= 10
+        ) and colon_prefix not in query_cascade:
             query_cascade.append(colon_prefix)
 
     media, ratio, err = None, 0.0, None
@@ -908,25 +951,31 @@ def _process_single_title(
         media, ratio, err = _query_anilist_best(cascade_query, clean_title, logger)
         if err or ratio >= 0.6:
             break
-        logger.debug(
-            f"[anime] cascade '{cascade_query}' ratio={ratio:.2f} — trying next"
-        )
+        logger.debug(f"[anime] cascade '{cascade_query}' ratio={ratio:.2f} — trying next")
 
     # Try alternate query (romaji) when primary ratio is low
     if not err and ratio < 0.5 and alt_query:
         alt_media, alt_ratio, alt_err = _query_anilist_best(alt_query, clean_title, logger)
         if not alt_err and alt_ratio > ratio:
-            logger.debug(f"[anime] alt_query '{alt_query}' improved ratio {ratio:.2f} -> {alt_ratio:.2f}")
+            logger.debug(
+                f"[anime] alt_query '{alt_query}' improved ratio {ratio:.2f} -> {alt_ratio:.2f}"
+            )
             media, ratio = alt_media, alt_ratio
 
     if err == "network_error":
         return AnimeExtractionResult(
-            extractor="anime", confidence=0.3, needs_review=True,
-            source_screenshot=screenshot_path, extracted_at=now,
-            raw_title=raw_title, title_pattern=title_pattern,
-            media_source=signal_type or "unknown", extraction_context=extraction_context,
+            extractor="anime",
+            confidence=0.3,
+            needs_review=True,
+            source_screenshot=screenshot_path,
+            extracted_at=now,
+            raw_title=raw_title,
+            title_pattern=title_pattern,
+            media_source=signal_type or "unknown",
+            extraction_context=extraction_context,
             multi_title_detected=multi_title,
-            dedup_key=raw_title.lower().strip(), levenshtein_ratio=None,
+            dedup_key=raw_title.lower().strip(),
+            levenshtein_ratio=None,
         )
 
     confidence, needs_review = _assign_confidence(ratio, title_pattern, extraction_context)
@@ -961,36 +1010,38 @@ def _process_single_title(
         native_title = titles.get("native")
         romaji = titles.get("romaji")
         media_type = media.get("type")
-        media_source = "anime" if media_type == "ANIME" else "manga" if media_type == "MANGA" else "unknown"
+        media_source = (
+            "anime" if media_type == "ANIME" else "manga" if media_type == "MANGA" else "unknown"
+        )
         episodes = media.get("episodes")
         status = media.get("status")
         genres = media.get("genres") or []
         raw_score = media.get("averageScore")
         score = raw_score / 10.0 if raw_score is not None else None
         anilist_url = media.get("siteUrl")
-        cover_image = (media.get("coverImage") or {}).get("extraLarge") \
-            or (media.get("coverImage") or {}).get("large")
+        cover_image = (media.get("coverImage") or {}).get("extraLarge") or (
+            media.get("coverImage") or {}
+        ).get("large")
         banner_image = media.get("bannerImage")
         media_format = media.get("format")
         source_material = media.get("source")
         country = _COUNTRY_MAP.get(media.get("countryOfOrigin") or "", "")
         debut_year = (media.get("startDate") or {}).get("year")
         studio_edges = (media.get("studios") or {}).get("edges") or []
-        _animation = sorted({
-            e["node"]["name"] for e in studio_edges
-            if e.get("node", {}).get("isAnimationStudio")
-        })
+        _animation = sorted(
+            {e["node"]["name"] for e in studio_edges if e.get("node", {}).get("isAnimationStudio")}
+        )
         if _animation:
             studios = _animation
         else:
-            _main = sorted({
-                e["node"]["name"] for e in studio_edges
-                if e.get("isMain")
-            })
-            studios = _main if _main else sorted({
-                e["node"]["name"] for e in studio_edges
-                if (e.get("node") or {}).get("name")
-            })
+            _main = sorted({e["node"]["name"] for e in studio_edges if e.get("isMain")})
+            studios = (
+                _main
+                if _main
+                else sorted(
+                    {e["node"]["name"] for e in studio_edges if (e.get("node") or {}).get("name")}
+                )
+            )
 
     # Single-word false-match guard: "Domain" → "DOMINO" (ratio ≈ 0.83) passes
     # the ≥0.8 threshold but is clearly wrong.  When both sides are a single
@@ -1043,7 +1094,7 @@ def _process_single_title(
         extraction_context=extraction_context,
         multi_title_detected=multi_title,
         dedup_key=dedup_key,
-        levenshtein_ratio=ratio,  # 0.0 when no AniList match; None only on network error (early return above)
+        levenshtein_ratio=ratio,  # 0.0 = no AniList match; None = network error (early return)
     )
 
 
@@ -1076,10 +1127,15 @@ def extract(
         for raw_title in multi_titles:
             context = "discussion" if _DISCUSSION_RE.match(raw_title) else "recommendation"
             res = _process_single_title(
-                raw_title=raw_title, title_pattern="label",
-                extraction_context=context, stripped_text=stripped,
-                screenshot_path=screenshot_path, now=now,
-                config=config, logger=logger, multi_title=True,
+                raw_title=raw_title,
+                title_pattern="label",
+                extraction_context=context,
+                stripped_text=stripped,
+                screenshot_path=screenshot_path,
+                now=now,
+                config=config,
+                logger=logger,
+                multi_title=True,
             )
             results.append(res)
         return results
@@ -1087,7 +1143,9 @@ def extract(
     # Step 2: single title extraction cascade (pass original text for Pattern F hashtag scan)
     raw_title, title_pattern = _extract_title(stripped, full_text=ocr_text)
     if raw_title is None:
-        logger.debug("[anime] no extractable title — all patterns failed or fallback rejected garbage")
+        logger.debug(
+            "[anime] no extractable title — all patterns failed or fallback rejected garbage"
+        )
         return AnimeExtractionResult(
             extractor="anime",
             confidence=0.0,
@@ -1110,9 +1168,16 @@ def extract(
             alt_query = m.group(2).strip()
 
     # Step 3: discussion context detection
-    extraction_context = "discussion" if (_DISCUSSION_RE.match(stripped.lstrip()) or title_pattern == "discussion") else "recommendation"
+    extraction_context = (
+        "discussion"
+        if (_DISCUSSION_RE.match(stripped.lstrip()) or title_pattern == "discussion")
+        else "recommendation"
+    )
 
-    logger.debug(f"[anime] extracted title='{raw_title}' pattern={title_pattern} context={extraction_context}")
+    logger.debug(
+        f"[anime] extracted title='{raw_title}' "
+        f"pattern={title_pattern} context={extraction_context}"
+    )
 
     # Preserve extracted title before entering AniList call path — if an
     # exception escapes _query_anilist's try/except, this value survives.
@@ -1120,17 +1185,27 @@ def extract(
 
     try:
         return _process_single_title(
-            raw_title=raw_title, title_pattern=title_pattern,
-            extraction_context=extraction_context, stripped_text=stripped,
-            screenshot_path=screenshot_path, now=now,
-            config=config, logger=logger, multi_title=False,
+            raw_title=raw_title,
+            title_pattern=title_pattern,
+            extraction_context=extraction_context,
+            stripped_text=stripped,
+            screenshot_path=screenshot_path,
+            now=now,
+            config=config,
+            logger=logger,
+            multi_title=False,
             alt_query=alt_query,
         )
     except Exception as e:
-        logger.exception(f"[anime] AniList call failed, preserving extracted title '{extracted_raw_title}': {e}")
+        logger.exception(
+            f"[anime] AniList call failed, preserving extracted title '{extracted_raw_title}': {e}"
+        )
         return AnimeExtractionResult(
-            extractor="anime", confidence=0.3, needs_review=True,
-            source_screenshot=screenshot_path, extracted_at=now,
+            extractor="anime",
+            confidence=0.3,
+            needs_review=True,
+            source_screenshot=screenshot_path,
+            extracted_at=now,
             raw_title=extracted_raw_title,
             title_pattern=title_pattern,
             media_source="unknown",

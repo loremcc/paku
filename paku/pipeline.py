@@ -183,9 +183,7 @@ def process_batch(
     if outputs is None:
         outputs = []
 
-    queue_path: str = config.get("outputs", {}).get(
-        "review_queue", "./output/review_queue.json"
-    )
+    queue_path: str = config.get("outputs", {}).get("review_queue", "./output/review_queue.json")
     output_dir = config.get("outputs", {}).get("base_dir", "./output")
     checkpoint_path = Path(output_dir) / ".paku_checkpoint"
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -225,9 +223,7 @@ def process_batch(
             )
         except Exception as e:
             logger.warning(f"[batch] Unhandled error processing {img.name}: {e}")
-            append_review_queue(
-                _queue_error_entry(img, f"batch_error: {e}"), queue_path
-            )
+            append_review_queue(_queue_error_entry(img, f"batch_error: {e}"), queue_path)
             failed += 1
             review_queued += 1
             continue
@@ -364,9 +360,7 @@ def process_image(
     if outputs is None:
         outputs = []
 
-    queue_path: str = config.get("outputs", {}).get(
-        "review_queue", "./output/review_queue.json"
-    )
+    queue_path: str = config.get("outputs", {}).get("review_queue", "./output/review_queue.json")
 
     path = Path(image_path)
 
@@ -436,7 +430,7 @@ def process_image(
                     smart_ocr = smart_engine.extract(image)
                     smart_text = smart_ocr.raw_text
                     if smart_text:
-                        smart_screen = classify_screen_type(smart_text)
+                        _ = classify_screen_type(smart_text)
                         smart_result = anime_extract(
                             ocr_text=smart_text,
                             screenshot_path=str(path),
@@ -455,9 +449,7 @@ def process_image(
                             f"confidence={anime_results[0].confidence:.2f}"
                         )
             except RuntimeError as e:
-                logger.warning(
-                    f"[pipeline] Smart engine unavailable, using fast-path result: {e}"
-                )
+                logger.warning(f"[pipeline] Smart engine unavailable, using fast-path result: {e}")
 
         for res in anime_results:
             if res.needs_review:
@@ -535,7 +527,9 @@ def process_image(
             from .outputs.txt_out import write_txt
 
             if content_type == "anime":
-                txt_value = getattr(extraction_result, "canonical_title", None) or getattr(extraction_result, "raw_title", None)
+                txt_value = getattr(extraction_result, "canonical_title", None) or getattr(
+                    extraction_result, "raw_title", None
+                )
             elif content_type == "recipe":
                 txt_value = getattr(extraction_result, "title", None)
             else:

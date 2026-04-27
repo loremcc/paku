@@ -3,7 +3,6 @@ from __future__ import annotations
 # Writes recipe ingredient rows and anime Notion import CSV.
 # Atomic write (tmp → os.replace) matches review_queue.json pattern.
 # Column headers must exactly match Notion property names (case-sensitive).
-
 import csv
 import io
 import os
@@ -49,6 +48,7 @@ _SOURCE_MAP: dict[str, str] = {
     "OTHER": "Other",
 }
 
+
 def write_csv(ingredients: list[dict], screenshot_stem: str, output_dir: str) -> Path:
     """Write ingredient rows to <output_dir>/<screenshot_stem>.csv.
 
@@ -70,12 +70,14 @@ def write_csv(ingredients: list[dict], screenshot_stem: str, output_dir: str) ->
     writer.writeheader()
     for row in ingredients:
         qty = row.get("quantity")
-        writer.writerow({
-            "ingredient": row.get("name", ""),
-            "quantity": str(qty) if qty is not None else "",
-            "unit": row.get("unit") or "",
-            "notes": row.get("notes") or "",
-        })
+        writer.writerow(
+            {
+                "ingredient": row.get("name", ""),
+                "quantity": str(qty) if qty is not None else "",
+                "unit": row.get("unit") or "",
+                "notes": row.get("notes") or "",
+            }
+        )
 
     tmp_path.write_text(buf.getvalue(), encoding="utf-8")
     os.replace(tmp_path, out_path)
@@ -129,17 +131,19 @@ def write_anime_csv(
         country = getattr(res, "country_of_origin", None)
         studios = getattr(res, "studios", [])
 
-        writer.writerow({
-            "English Title": canonical or raw,
-            "Romaji Title": getattr(res, "romaji", "") or "",
-            "Cover": getattr(res, "cover_image", "") or "",
-            "Format": _FORMAT_MAP.get(media_format or "", media_format or ""),
-            "Source": _SOURCE_MAP.get(source or "", source or ""),
-            "Debut Year": str(debut_year) if debut_year is not None else "",
-            "Status": "Not Started",
-            "Country": country or "",
-            "Studios": ", ".join(studios) if studios else "",
-        })
+        writer.writerow(
+            {
+                "English Title": canonical or raw,
+                "Romaji Title": getattr(res, "romaji", "") or "",
+                "Cover": getattr(res, "cover_image", "") or "",
+                "Format": _FORMAT_MAP.get(media_format or "", media_format or ""),
+                "Source": _SOURCE_MAP.get(source or "", source or ""),
+                "Debut Year": str(debut_year) if debut_year is not None else "",
+                "Status": "Not Started",
+                "Country": country or "",
+                "Studios": ", ".join(studios) if studios else "",
+            }
+        )
 
     tmp_path.write_text(buf.getvalue(), encoding="utf-8")
     os.replace(tmp_path, output_path)

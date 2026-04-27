@@ -7,8 +7,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from .base import OCREngine
 from ..models import BoundingBox, OcrBlock, OcrResult
+from .base import OCREngine
 
 
 class GoogleVisionOCREngine(OCREngine):
@@ -41,12 +41,8 @@ class GoogleVisionOCREngine(OCREngine):
             return False
 
         has_env = bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip())
-        has_key = bool(
-            self._config.get("google_vision", {}).get("api_key", "").strip()
-        )
-        has_file = bool(
-            self._config.get("google_vision", {}).get("credentials_file", "").strip()
-        )
+        has_key = bool(self._config.get("google_vision", {}).get("api_key", "").strip())
+        has_file = bool(self._config.get("google_vision", {}).get("credentials_file", "").strip())
         if not (has_env or has_key or has_file):
             self._logger.debug(
                 "[google_vision] No credentials found — set GOOGLE_APPLICATION_CREDENTIALS, "
@@ -74,15 +70,9 @@ class GoogleVisionOCREngine(OCREngine):
         response = client.document_text_detection(image=vision_image)
 
         if response.error.message:
-            raise RuntimeError(
-                f"[google_vision] Vision API error: {response.error.message}"
-            )
+            raise RuntimeError(f"[google_vision] Vision API error: {response.error.message}")
 
-        raw_text = (
-            response.text_annotations[0].description
-            if response.text_annotations
-            else ""
-        )
+        raw_text = response.text_annotations[0].description if response.text_annotations else ""
         blocks = self._map_blocks(response)
         language = self._detect_language(response)
 
@@ -108,11 +98,10 @@ class GoogleVisionOCREngine(OCREngine):
         if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip():
             return vision_module.ImageAnnotatorClient()
         # Service account JSON file path from config
-        credentials_file = (
-            self._config.get("google_vision", {}).get("credentials_file", "").strip()
-        )
+        credentials_file = self._config.get("google_vision", {}).get("credentials_file", "").strip()
         if credentials_file:
             from google.oauth2 import service_account
+
             creds = service_account.Credentials.from_service_account_file(
                 credentials_file,
                 scopes=["https://www.googleapis.com/auth/cloud-platform"],

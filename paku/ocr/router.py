@@ -20,9 +20,7 @@ class EngineRouter:
     engines: dict[str, OCREngine]
 
     def _select_by_kind(self, kind: str) -> OCREngine | None:
-        candidates = [
-            e for e in self.engines.values() if e.kind() == kind and e.is_healthy()
-        ]
+        candidates = [e for e in self.engines.values() if e.kind() == kind and e.is_healthy()]
         return candidates[0] if candidates else None
 
     def select(self, strategy: str) -> OCREngine:

@@ -5,8 +5,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from .base import OCREngine
 from ..models import OcrResult
+from .base import OCREngine
 
 
 class StubOCREngine(OCREngine):

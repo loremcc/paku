@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -18,8 +17,8 @@ from .database import (
     USER_STATUSES,
     AnimeEntry,
     AnimeListResponse,
-    Database,
     DashboardStats,
+    Database,
     StatusUpdate,
     ingest_pipeline_result,
 )
@@ -120,14 +119,12 @@ def create_app(db_path: str | Path = "paku_web.db") -> FastAPI:
         # Use the original filename as the canonical screenshot path for dedup/display.
         result["screenshot"] = file.filename or result.get("screenshot", "")
         extraction = result.get("extraction") or {}
-        for ex in (result.get("extractions") or [extraction]):
+        for ex in result.get("extractions") or [extraction]:
             if isinstance(ex, dict) and not ex.get("source_screenshot"):
                 ex["source_screenshot"] = result["screenshot"]
 
         stored = ingest_pipeline_result(db, result)
-        needs_review = any(e.needs_review for e in stored) or bool(
-            extraction.get("needs_review")
-        )
+        needs_review = any(e.needs_review for e in stored) or bool(extraction.get("needs_review"))
 
         return DigestResponse(
             content_type=result.get("content_type", "unknown"),
@@ -175,7 +172,8 @@ def create_app(db_path: str | Path = "paku_web.db") -> FastAPI:
         if update.user_status not in USER_STATUSES:
             raise HTTPException(
                 422,
-                f"Invalid user_status: {update.user_status!r}. Must be one of {list(USER_STATUSES)}",
+                f"Invalid user_status: {update.user_status!r}. "
+                f"Must be one of {list(USER_STATUSES)}",
             )
         entry = db.update_user_status(anime_id, update.user_status)
         if entry is None:
@@ -328,7 +326,8 @@ def _media_to_search_result(media: dict[str, Any]) -> SearchResult:
 
 
 def _media_to_extraction(media: dict[str, Any]) -> dict[str, Any]:
-    """Convert an AniList media dict into an extraction-shaped dict for db.insert_or_update_anime."""
+    """Convert an AniList media dict into an extraction-shaped dict
+    for db.insert_or_update_anime."""
     title = media.get("title") or {}
     cover = media.get("coverImage") or {}
     start = media.get("startDate") or {}

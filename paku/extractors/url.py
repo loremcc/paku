@@ -10,40 +10,108 @@ from ..pipeline import DOMAIN_PATTERNS
 
 # --- Shared constants ---
 
-SOCIAL_DOMAIN_BLOCKLIST = frozenset({
-    "instagram.com",
-    "threads.net",
-    "facebook.com",
-    "twitter.com",
-    "x.com",
-    "tiktok.com",
-    "youtube.com",
-    "reddit.com",
-})
+SOCIAL_DOMAIN_BLOCKLIST = frozenset(
+    {
+        "instagram.com",
+        "threads.net",
+        "facebook.com",
+        "twitter.com",
+        "x.com",
+        "tiktok.com",
+        "youtube.com",
+        "reddit.com",
+    }
+)
 
 # Curated TLD allowlist (~60 TLDs).  Prevents matching file extensions (.py,
 # .json, .png), version strings (v2.py), and abbreviations (e.g, i.e).
-TLD_ALLOWLIST = frozenset({
-    "com", "org", "net", "io", "dev", "co", "app", "ai", "xyz", "tech",
-    "cloud", "site", "online", "info", "me", "cc", "gg", "tv", "fm", "sh",
-    "so", "to", "is", "it", "de", "fr", "uk", "us", "eu", "ru", "jp", "kr",
-    "br", "in", "nl", "se", "ch", "at", "be", "au", "ca", "pl", "cz", "fi",
-    "no", "dk", "pt", "es", "ro", "hu", "sk", "bg", "hr", "lt", "lv", "ee",
-    "ie", "lu",
-})
+TLD_ALLOWLIST = frozenset(
+    {
+        "com",
+        "org",
+        "net",
+        "io",
+        "dev",
+        "co",
+        "app",
+        "ai",
+        "xyz",
+        "tech",
+        "cloud",
+        "site",
+        "online",
+        "info",
+        "me",
+        "cc",
+        "gg",
+        "tv",
+        "fm",
+        "sh",
+        "so",
+        "to",
+        "is",
+        "it",
+        "de",
+        "fr",
+        "uk",
+        "us",
+        "eu",
+        "ru",
+        "jp",
+        "kr",
+        "br",
+        "in",
+        "nl",
+        "se",
+        "ch",
+        "at",
+        "be",
+        "au",
+        "ca",
+        "pl",
+        "cz",
+        "fi",
+        "no",
+        "dk",
+        "pt",
+        "es",
+        "ro",
+        "hu",
+        "sk",
+        "bg",
+        "hr",
+        "lt",
+        "lv",
+        "ee",
+        "ie",
+        "lu",
+    }
+)
 
 # GitHub context signals — when 2+ are present in OCR text, the screenshot
 # is a GitHub repo page and Tier 2 domain-only matches should defer to Tier 3.
 GITHUB_CONTEXT_SIGNALS = [
-    "Stars", "Forks", "Issues", "Pull requests", "Pull Requests",
-    "README", "MIT license", "Contributors", "Discussions", "Actions",
-    "Releases", "Code", "master", "main", "commits",
+    "Stars",
+    "Forks",
+    "Issues",
+    "Pull requests",
+    "Pull Requests",
+    "README",
+    "MIT license",
+    "Contributors",
+    "Discussions",
+    "Actions",
+    "Releases",
+    "Code",
+    "master",
+    "main",
+    "commits",
 ]
 
 # Chrome adjacency patterns — if any appear on the same or adjacent line,
 # the candidate is likely an Instagram username, not a target URL.
 _CHROME_ADJACENCY_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"\b\d+[hdmw]\b"),                         # "3h", "2d"
+    re.compile(r"\b\d+[hdmw]\b"),  # "3h", "2d"
     re.compile(r"\d+\s*(?:days?|hours?|minutes?|weeks?)\s*ago", re.IGNORECASE),
     re.compile(r"\bFollow\b"),
     re.compile(r"\bFollowing\b"),
@@ -78,10 +146,21 @@ _TRAILING_PUNCT = set(".,)]\"\\'>;")
 
 # Single-segment path values that indicate a navigation chrome element rather
 # than the project/content the screenshot is actually about.
-_NAV_PATH_SEGMENTS = frozenset({
-    "donate", "sponsor", "about", "contact", "support",
-    "contribute", "login", "signup", "subscribe", "privacy", "terms",
-})
+_NAV_PATH_SEGMENTS = frozenset(
+    {
+        "donate",
+        "sponsor",
+        "about",
+        "contact",
+        "support",
+        "contribute",
+        "login",
+        "signup",
+        "subscribe",
+        "privacy",
+        "terms",
+    }
+)
 
 
 # --- Noise stripping ---
@@ -273,7 +352,12 @@ def _tier1(cleaned_text: str) -> URLExtractionResult | None:
         path_part = url.split("/")[-1]
         if truncated and len(path_part) < 6:
             continue
-        if not truncated and not raw_has_scheme and len(path_part) < 6 and _count_github_signals(cleaned_text) >= 2:
+        if (
+            not truncated
+            and not raw_has_scheme
+            and len(path_part) < 6
+            and _count_github_signals(cleaned_text) >= 2
+        ):
             # Short final segment on a bare-domain GitHub URL without explicit ellipsis —
             # likely browser bar truncation without a visible marker.
             # Fall through to Tier 3 which may reconstruct the full URL.
@@ -297,7 +381,7 @@ def _tier1(cleaned_text: str) -> URLExtractionResult | None:
         # e.g. "https://gist.github.com/User/a7d\n4eec3833baee4971a0ee54b08f322"
         # Trigger: URL ends at a newline boundary and the next line is a bare
         # alphanumeric token (no spaces, no scheme) that looks like a hash tail.
-        char_after = cleaned_text[end:end + 1]
+        char_after = cleaned_text[end : end + 1]
         if char_after in ("\n", ""):
             line_end = end if char_after == "\n" else end
             next_start = end + 1 if char_after == "\n" else end
@@ -329,7 +413,7 @@ def _tier1(cleaned_text: str) -> URLExtractionResult | None:
             confidence=0.9,
             needs_review=False,
             source_screenshot="",  # filled by caller
-            extracted_at="",       # filled by caller
+            extracted_at="",  # filled by caller
             resolved_url=url,
             raw_text_snippet=snip,
             extraction_tier=1,
@@ -427,8 +511,7 @@ def _tier3(cleaned_text: str) -> URLExtractionResult | None:
 
         # Reject slide indicators.
         full_match_line = cleaned_text[
-            max(0, cleaned_text.rfind("\n", 0, m.start()) + 1):
-            cleaned_text.find("\n", m.end())
+            max(0, cleaned_text.rfind("\n", 0, m.start()) + 1) : cleaned_text.find("\n", m.end())
             if cleaned_text.find("\n", m.end()) != -1
             else len(cleaned_text)
         ].strip()
@@ -471,14 +554,39 @@ def _extract_project_name(cleaned_text: str) -> str | None:
     - Longest capitalized phrase within 2 lines of signal phrases
     """
     signal_phrases = [
-        "open source", "open-source", "library", "framework", "tool",
-        "project", "repository", "repo",
+        "open source",
+        "open-source",
+        "library",
+        "framework",
+        "tool",
+        "project",
+        "repository",
+        "repo",
     ]
-    excluded_caps = frozenset({
-        "HOME", "INBOX", "EXPLORE", "PROFILE", "THE", "AND", "FOR",
-        "YOU", "THIS", "THAT", "WITH", "FROM", "YOUR", "HAS", "ARE",
-        "NOT", "BUT", "ALL", "WAS", "CAN",
-    })
+    excluded_caps = frozenset(
+        {
+            "HOME",
+            "INBOX",
+            "EXPLORE",
+            "PROFILE",
+            "THE",
+            "AND",
+            "FOR",
+            "YOU",
+            "THIS",
+            "THAT",
+            "WITH",
+            "FROM",
+            "YOUR",
+            "HAS",
+            "ARE",
+            "NOT",
+            "BUT",
+            "ALL",
+            "WAS",
+            "CAN",
+        }
+    )
 
     lines = cleaned_text.splitlines()
     best: str | None = None

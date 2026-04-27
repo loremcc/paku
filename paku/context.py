@@ -47,7 +47,8 @@ class AppContext:
         stub = StubOCREngine(config=config, logger=logger)
         engines[stub.name()] = stub
 
-        # Google Cloud Vision — optional, registered only when SDK is installed and credentials present
+        # Google Cloud Vision — optional, registered only when SDK is installed
+        # and credentials present
         try:
             from .ocr.google_vision import GoogleVisionOCREngine
 
@@ -82,8 +83,7 @@ class AppContext:
     def get_ocr(self, name: str) -> OCREngine:
         if name not in self.ocr_engines:
             raise ValueError(
-                f"OCR engine not registered: {name!r}. "
-                f"Available: {', '.join(self.ocr_engines)}"
+                f"OCR engine not registered: {name!r}. Available: {', '.join(self.ocr_engines)}"
             )
         return self.ocr_engines[name]
 
