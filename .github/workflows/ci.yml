@@ -40,6 +40,6 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
-      - run: pip install build
+      - run: pip install build hatchling
       - run: python -m build --wheel --no-isolation
       - run: ls dist/*.whl
