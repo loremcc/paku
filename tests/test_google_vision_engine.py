@@ -196,13 +196,15 @@ class TestGoogleVisionIsHealthy:
         fake_creds = str(tmp_path / "svc.json")
         monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", fake_creds)
         mock_vision = MagicMock()
-        with patch.dict(sys.modules, {"google.cloud.vision": mock_vision}):
+        ns = {"google": MagicMock(), "google.cloud": MagicMock(), "google.cloud.vision": mock_vision}
+        with patch.dict(sys.modules, ns):
             assert engine_no_creds.is_healthy() is True
 
     def test_true_with_api_key_in_config(self, engine_with_api_key, monkeypatch):
         monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
         mock_vision = MagicMock()
-        with patch.dict(sys.modules, {"google.cloud.vision": mock_vision}):
+        ns = {"google": MagicMock(), "google.cloud": MagicMock(), "google.cloud.vision": mock_vision}
+        with patch.dict(sys.modules, ns):
             assert engine_with_api_key.is_healthy() is True
 
     def test_false_when_api_key_is_whitespace_only(self, logger, monkeypatch):
