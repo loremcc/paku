@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/loremcc/paku/actions/workflows/ci.yml/badge.svg)](https://github.com/loremcc/paku/actions/workflows/ci.yml)
 
+![paku demo](docs/demo.gif)
+
 CLI tool that turns Instagram screenshots into structured data. Feed it a screenshot and it runs OCR (Google Cloud Vision), classifies the content (anime recommendation, GitHub link, recipe), extracts the relevant data, and writes it in a usable format.
 
 ## What it does

@@ -50,3 +50,10 @@ tasks/
 *.db
 .paku_checkpoint
 review_queue.json
+
+# Demo recording (raw cast file — only the GIF is committed)
+docs/demo.cast
+
+# Downloaded binaries (not worth repo history)
+# agg: https://github.com/asciinema/agg/releases/download/v1.7.0/agg-x86_64-pc-windows-msvc.exe
+tools/
