@@ -96,7 +96,7 @@ anilist:
   confidence_threshold: 0.8
 
 ollama:
-  base_url: "http://192.168.1.114:11434"  # LAN host running Ollama
+  base_url: "http://localhost:11434"  # or LAN host running Ollama
   model: "gemma4-paku:latest"             # custom model (see Modelfile.paku)
 ```
 
@@ -159,6 +159,7 @@ paku/
     app.py              # FastAPI factory create_app(db_path), 9 endpoints
     static/
       index.html        # Vanilla JS + Tailwind SPA — Collection, Add, Review, Dashboard tabs
+Modelfile.paku         # Ollama Modelfile for "gemma4-paku:latest" custom model
 ```
 
 ## License

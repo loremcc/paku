@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 # --- Pydantic models ---
 
 USER_STATUSES = ("Watching", "Completed", "Plan to Watch", "Dropped", "On Hold")
+_ALLOWED_SORT = {"title", "score", "debut_year", "added_at"}
 
 
 class AnimeEntry(BaseModel):
@@ -219,8 +220,7 @@ class Database:
         page: int = 1,
         per_page: int = 60,
     ) -> AnimeListResponse:
-        allowed_sort = {"title", "score", "debut_year", "added_at"}
-        if sort not in allowed_sort:
+        if sort not in _ALLOWED_SORT:
             sort = "added_at"
         sort_col = "COALESCE(canonical_title, raw_title)" if sort == "title" else sort
         order_sql = "ASC" if order.lower() == "asc" else "DESC"

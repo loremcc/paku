@@ -30,7 +30,7 @@ _PLATFORM_SIGNALS: dict[str, list[str]] = {
 _DONGHUA_SIGNALS = ["Chinese Web Novel", "Donghua", "BiliBili", "G.CMay", "studio A-CAT"]
 _WESTERN_SIGNALS = ["Cartoon Network", "Adult Swim", "Disney", "Nickelodeon"]
 
-_COUNTRY_MAP: dict[str, str] = {
+COUNTRY_MAP: dict[str, str] = {
     "JP": "Japan",
     "KR": "South Korea",
     "CN": "China",
@@ -40,6 +40,7 @@ _COUNTRY_MAP: dict[str, str] = {
     "GB": "United Kingdom",
     "FR": "France",
 }
+_COUNTRY_MAP = COUNTRY_MAP  # backward-compat alias for scripts
 
 # --- Title extraction regexes ---
 
@@ -1025,7 +1026,7 @@ def _process_single_title(
         banner_image = media.get("bannerImage")
         media_format = media.get("format")
         source_material = media.get("source")
-        country = _COUNTRY_MAP.get(media.get("countryOfOrigin") or "", "")
+        country = COUNTRY_MAP.get(media.get("countryOfOrigin") or "", "")
         debut_year = (media.get("startDate") or {}).get("year")
         studio_edges = (media.get("studios") or {}).get("edges") or []
         _animation = sorted(

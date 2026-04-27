@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..context import AppContext
-from ..extractors.anime import _ANILIST_URL, _COUNTRY_MAP
+from ..extractors.anime import COUNTRY_MAP
 from ..pipeline import process_image
 from .database import (
     USER_STATUSES,
@@ -24,6 +24,7 @@ from .database import (
 )
 
 _STATIC_DIR = Path(__file__).parent / "static"
+_ANILIST_URL = "https://graphql.anilist.co"
 
 
 class SearchResult(BaseModel):
@@ -62,7 +63,7 @@ class DigestResponse(BaseModel):
 
 def create_app(db_path: str | Path = "paku_web.db") -> FastAPI:
     """Build and return the FastAPI app. Factory is used so tests can pass an isolated DB path."""
-    app = FastAPI(title="paku dashboard", version="0.6.0")
+    app = FastAPI(title="paku dashboard", version="1.0.0")
     db = Database(db_path)
     app.state.db = db
 
@@ -268,39 +269,35 @@ query ($id: Int) {
 """
 
 
-def _search_anilist_page(query: str, limit: int = 10) -> list[SearchResult]:
+def _anilist_post(query: str, variables: dict[str, Any]) -> dict[str, Any] | None:
+    """POST to AniList GraphQL. Returns parsed JSON, or None on 404. Raises HTTPException(502) on error."""
     try:
         resp = requests.post(
             _ANILIST_URL,
-            json={"query": _PAGE_QUERY, "variables": {"search": query, "perPage": limit}},
+            json={"query": query, "variables": variables},
             timeout=10,
         )
         if resp.status_code == 404:
-            return []
+            return None
         resp.raise_for_status()
-        data = resp.json()
+        return resp.json()
     except Exception as exc:
         raise HTTPException(502, f"AniList request failed: {exc}")
 
+
+def _search_anilist_page(query: str, limit: int = 10) -> list[SearchResult]:
+    data = _anilist_post(_PAGE_QUERY, {"search": query, "perPage": limit})
+    if data is None:
+        return []
     page = (data.get("data") or {}).get("Page") or {}
     media_list = page.get("media") or []
     return [_media_to_search_result(m) for m in media_list]
 
 
 def _fetch_anilist_by_id(anilist_id: int) -> dict[str, Any] | None:
-    try:
-        resp = requests.post(
-            _ANILIST_URL,
-            json={"query": _ID_QUERY, "variables": {"id": anilist_id}},
-            timeout=10,
-        )
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as exc:
-        raise HTTPException(502, f"AniList request failed: {exc}")
-
+    data = _anilist_post(_ID_QUERY, {"id": anilist_id})
+    if data is None:
+        return None
     return (data.get("data") or {}).get("Media")
 
 
@@ -339,7 +336,7 @@ def _media_to_extraction(media: dict[str, Any]) -> dict[str, Any]:
         if edge.get("node", {}).get("isAnimationStudio")
     ]
     country_code = media.get("countryOfOrigin")
-    country = _COUNTRY_MAP.get(country_code, country_code) if country_code else None
+    country = COUNTRY_MAP.get(country_code, country_code) if country_code else None
 
     return {
         "anilist_id": media["id"],
