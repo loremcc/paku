@@ -176,6 +176,14 @@ class Database:
             row = cur.fetchone()
         return _row_to_entry(row) if row else None
 
+    def has_anilist_id(self, anilist_id: int) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM anime_entries WHERE anilist_id = ? LIMIT 1",
+                (anilist_id,),
+            ).fetchone()
+        return row is not None
+
     def update_user_status(self, anime_id: int, user_status: str) -> AnimeEntry | None:
         if user_status not in USER_STATUSES:
             raise ValueError(

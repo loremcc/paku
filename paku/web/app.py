@@ -194,6 +194,48 @@ def create_app(db_path: str | Path = "paku_web.db") -> FastAPI:
             raise HTTPException(404, f"Anime id {anime_id} not found")
         return JSONResponse({"deleted": anime_id})
 
+    @app.get("/api/collection/{anime_id}/recommendations")
+    def get_recommendations(anime_id: int) -> dict[str, Any]:
+        entry = db.get_anime(anime_id)
+        if entry is None:
+            raise HTTPException(404, f"Anime id {anime_id} not found")
+        if entry.anilist_id is None:
+            return {
+                "recommendations": [],
+                "reason": "no_anilist_id",
+                "source_title": entry.canonical_title or entry.raw_title,
+            }
+
+        data = _anilist_post(_RECOMMENDATIONS_QUERY, {"id": entry.anilist_id})
+        media = ((data or {}).get("data") or {}).get("Media") or {}
+        nodes = ((media.get("recommendations") or {}).get("nodes")) or []
+
+        recs: list[dict[str, Any]] = []
+        for node in nodes:
+            rec = (node or {}).get("mediaRecommendation")
+            if not rec:
+                continue
+            title = rec.get("title") or {}
+            cover = rec.get("coverImage") or {}
+            score = rec.get("averageScore")
+            recs.append({
+                "anilist_id": rec["id"],
+                "english": title.get("english"),
+                "romaji": title.get("romaji"),
+                "cover_image": (
+                    cover.get("extraLarge") or cover.get("large") or cover.get("medium")
+                ),
+                "average_score": score,
+                "media_format": rec.get("format"),
+                "status": rec.get("status"),
+                "saved": db.has_anilist_id(rec["id"]),
+            })
+
+        return {
+            "recommendations": recs,
+            "source_title": entry.canonical_title or entry.raw_title,
+        }
+
     # --- Search ---
 
     @app.get("/api/search", response_model=SearchResponse)
@@ -247,6 +289,25 @@ query ($search: String, $perPage: Int) {
 }
 """
 
+_RECOMMENDATIONS_QUERY = """
+query ($id: Int) {
+  Media(id: $id) {
+    recommendations(sort: RATING_DESC, perPage: 10) {
+      nodes {
+        mediaRecommendation {
+          id
+          title { english romaji }
+          coverImage { extraLarge large medium }
+          averageScore
+          format
+          status
+        }
+      }
+    }
+  }
+}
+"""
+
 _ID_QUERY = """
 query ($id: Int) {
   Media(id: $id) {
@@ -270,7 +331,7 @@ query ($id: Int) {
 
 
 def _anilist_post(query: str, variables: dict[str, Any]) -> dict[str, Any] | None:
-    """POST to AniList GraphQL. Returns parsed JSON, or None on 404. Raises HTTPException(502) on error."""
+    """POST to AniList GraphQL. Returns JSON, None on 404, raises HTTPException(502) on error."""
     try:
         resp = requests.post(
             _ANILIST_URL,

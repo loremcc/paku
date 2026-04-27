@@ -141,6 +141,19 @@
       Nothing here yet. Head to <strong>Add</strong> to drop in a screenshot.
     </div>
     <div id="collection-pager" class="flex justify-center gap-2 mt-8"></div>
+
+    <div id="recommendations-panel" class="surface rounded-lg p-5 mt-10 hidden">
+      <div class="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+        <h3 class="text-lg font-semibold">Recommended for you</h3>
+        <p class="text-xs" style="color: var(--paku-text-dim);">
+          Based on <strong id="recommendations-seed"></strong>
+        </p>
+      </div>
+      <div id="recommendations-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4"></div>
+      <p id="recommendations-empty" class="hidden text-sm text-center py-6" style="color: var(--paku-text-dim);">
+        No recommendations available right now.
+      </p>
+    </div>
   </section>
 
   <!-- ADD TAB -->
@@ -236,6 +249,9 @@ const api = {
     });
     if (!r.ok) throw new Error('add failed');
     return r.json();
+  },
+  async recommendations(id) {
+    return (await fetch('/api/collection/' + id + '/recommendations')).json();
   }
 };
 
@@ -314,6 +330,73 @@ async function loadCollection() {
     attachCardHandlers('collection-grid');
   }
   renderPager(data);
+  loadRecommendations(data.items);
+}
+
+async function loadRecommendations(items) {
+  const panel = document.getElementById('recommendations-panel');
+  const seed = (items || []).find(e => e.anilist_id != null);
+  if (!seed) { panel.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+  document.getElementById('recommendations-seed').textContent =
+    seed.canonical_title || seed.raw_title || 'your collection';
+  const grid = document.getElementById('recommendations-grid');
+  const empty = document.getElementById('recommendations-empty');
+  grid.innerHTML = '<p class="col-span-full text-sm" style="color: var(--paku-text-dim);">Loading…</p>';
+  empty.classList.add('hidden');
+  try {
+    const data = await api.recommendations(seed.id);
+    const recs = (data.recommendations || []).slice(0, 6);
+    if (!recs.length) {
+      grid.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    grid.innerHTML = recs.map(recCardHTML).join('');
+    grid.querySelectorAll('button[data-add-rec]').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true; b.textContent = '…';
+      const card = b.closest('.card');
+      try {
+        await api.searchAdd(parseInt(b.dataset.addRec));
+        if (card) {
+          card.style.transition = 'opacity .25s';
+          card.style.opacity = '0';
+          setTimeout(() => {
+            card.remove();
+            if (!grid.querySelector('.card')) {
+              empty.classList.remove('hidden');
+            }
+          }, 250);
+        }
+        loadCollection();
+      } catch {
+        b.disabled = false; b.textContent = 'Retry';
+      }
+    }));
+  } catch {
+    grid.innerHTML = '<p class="col-span-full text-sm" style="color:#f87171">Failed to load recommendations.</p>';
+  }
+}
+
+function recCardHTML(r) {
+  const title = r.english || r.romaji || 'Untitled';
+  const cover = r.cover_image || '';
+  const coverStyle = cover ? `background-image:url('${cover}')` : '';
+  const score = r.average_score != null ? `<span class="chip">★ ${(r.average_score / 10).toFixed(1)}</span>` : '';
+  const fmt = r.media_format ? `<span class="chip">${r.media_format}</span>` : '';
+  const action = r.saved
+    ? `<span class="chip chip-accent">saved</span>`
+    : `<button class="btn btn-accent w-full" data-add-rec="${r.anilist_id}">Add</button>`;
+  return `
+    <div class="card" style="cursor:default">
+      <div class="card-cover" style="${coverStyle}"></div>
+      <div class="p-3 flex-1 flex flex-col gap-2">
+        <div class="font-semibold text-sm leading-tight line-clamp-2" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+        <div class="flex flex-wrap gap-1">${fmt}${score}</div>
+        <div class="mt-auto pt-1">${action}</div>
+      </div>
+    </div>
+  `;
 }
 function renderPager({page, per_page, total}) {
   const pages = Math.max(1, Math.ceil(total / per_page));

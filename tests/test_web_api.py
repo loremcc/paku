@@ -349,6 +349,116 @@ class TestStatsEndpoint:
         assert "Adventure" in body["by_genre"]
 
 
+# --- /api/collection/{id}/recommendations ---
+
+
+def _fake_recs_response(rec_ids: list[int]) -> dict:
+    nodes = []
+    for rid in rec_ids:
+        nodes.append(
+            {
+                "mediaRecommendation": {
+                    "id": rid,
+                    "title": {"english": f"Rec {rid}", "romaji": f"Rec {rid} R"},
+                    "coverImage": {"medium": f"https://e.com/{rid}.jpg"},
+                    "averageScore": 80,
+                    "format": "TV",
+                    "status": "FINISHED",
+                }
+            }
+        )
+    nodes.append({"mediaRecommendation": None})
+    return {"data": {"Media": {"recommendations": {"nodes": nodes}}}}
+
+
+class _FakeRecResp:
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+        self.status_code = 200
+
+    def raise_for_status(self) -> None: ...
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class TestRecommendations:
+    def test_recommendations_no_anilist_id(
+        self, client: TestClient, anime_png: bytes
+    ) -> None:
+        result = _fake_anime_result("s.png", anilist_id=1)
+        result["extraction"]["anilist_id"] = None
+        with patch("paku.web.app.process_image", return_value=result):
+            digest = client.post(
+                "/api/digest", files={"file": ("s.png", anime_png, "image/png")}
+            ).json()
+        anime_id = digest["stored"][0]["id"]
+
+        resp = client.get(f"/api/collection/{anime_id}/recommendations")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["recommendations"] == []
+        assert body["reason"] == "no_anilist_id"
+
+    def test_recommendations_missing_entry_404(self, client: TestClient) -> None:
+        resp = client.get("/api/collection/999/recommendations")
+        assert resp.status_code == 404
+
+    def test_recommendations_mocked_anilist(
+        self, client: TestClient, anime_png: bytes
+    ) -> None:
+        with patch("paku.web.app.process_image") as mock_proc:
+            mock_proc.return_value = _fake_anime_result("s.png", anilist_id=42)
+            digest = client.post(
+                "/api/digest", files={"file": ("s.png", anime_png, "image/png")}
+            ).json()
+        anime_id = digest["stored"][0]["id"]
+
+        with patch(
+            "paku.web.app.requests.post",
+            return_value=_FakeRecResp(_fake_recs_response([501, 502])),
+        ):
+            resp = client.get(f"/api/collection/{anime_id}/recommendations")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["source_title"] == "Frieren"
+        assert len(body["recommendations"]) == 2
+        rec = body["recommendations"][0]
+        assert rec["anilist_id"] == 501
+        assert rec["english"] == "Rec 501"
+        assert rec["cover_image"] == "https://e.com/501.jpg"
+        assert rec["saved"] is False
+        assert "media_format" in rec
+
+    def test_recommendations_marks_saved(
+        self, client: TestClient, anime_png: bytes
+    ) -> None:
+        with patch("paku.web.app.process_image") as mock_proc:
+            mock_proc.return_value = _fake_anime_result(
+                "seed.png", anilist_id=10, title="Seed"
+            )
+            seed_digest = client.post(
+                "/api/digest", files={"file": ("seed.png", anime_png, "image/png")}
+            ).json()
+            mock_proc.return_value = _fake_anime_result(
+                "saved.png", anilist_id=601, title="Already Saved"
+            )
+            client.post(
+                "/api/digest", files={"file": ("saved.png", anime_png, "image/png")}
+            )
+        seed_id = seed_digest["stored"][0]["id"]
+
+        with patch(
+            "paku.web.app.requests.post",
+            return_value=_FakeRecResp(_fake_recs_response([601, 602])),
+        ):
+            resp = client.get(f"/api/collection/{seed_id}/recommendations")
+        assert resp.status_code == 200
+        recs = {r["anilist_id"]: r for r in resp.json()["recommendations"]}
+        assert recs[601]["saved"] is True
+        assert recs[602]["saved"] is False
+
+
 # --- Index / static ---
 
 

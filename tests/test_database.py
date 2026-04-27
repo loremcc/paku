@@ -344,3 +344,16 @@ class TestIngestPipelineResult:
         stored = ingest_pipeline_result(db, result)
         assert stored == []
         assert db.list_anime().total == 0
+
+
+class TestHasAnilistId:
+    def test_has_anilist_id_present(self, db: Database) -> None:
+        db.insert_or_update_anime(_extraction(anilist_id=12345, canonical="Present"))
+        assert db.has_anilist_id(12345) is True
+
+    def test_has_anilist_id_absent(self, db: Database) -> None:
+        assert db.has_anilist_id(99999) is False
+
+    def test_has_anilist_id_ignores_null_rows(self, db: Database) -> None:
+        db.insert_or_update_anime(_extraction(anilist_id=None, canonical="No Match"))
+        assert db.has_anilist_id(0) is False

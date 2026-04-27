@@ -402,9 +402,32 @@ def _detect_carousel_titles(text: str) -> list[str]:
 
 def _detect_multi_titles(text: str) -> list[str]:
     """Return list of title strings from date-prefixed or carousel formats."""
-    matches = _MULTI_DATE_RE.findall(text)
-    if len(matches) >= 3:
-        return [m.strip() for m in matches]
+    iters = list(_MULTI_DATE_RE.finditer(text))
+    if len(iters) >= 3:
+        # Two-line titles: a card whose title wraps ("Si-Vis: The Sound of\nHeroes")
+        # produces a date-line match for the first line only. Absorb any non-empty
+        # continuation lines that sit between this match and the next date marker
+        # and aren't themselves UI noise / dates / engagement counts.
+        results: list[str] = []
+        for idx, m in enumerate(iters):
+            title = m.group(1).strip()
+            next_start = iters[idx + 1].start() if idx + 1 < len(iters) else len(text)
+            tail = text[m.end():next_start]
+            for ln in tail.splitlines():
+                cont = ln.strip()
+                if not cont:
+                    continue
+                if _MULTI_DATE_RE.match(cont):
+                    break
+                if _is_garbage_fallback(cont):
+                    continue
+                if re.match(r"^[\d.,]+[KkMm]?$", cont):
+                    continue
+                if len(cont) < 2 or len(cont) > 60:
+                    continue
+                title = f"{title} {cont}".strip()
+            results.append(title)
+        return results
 
     carousel = _detect_carousel_titles(text)
     if carousel:

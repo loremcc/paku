@@ -664,6 +664,17 @@ class TestMultiTitleDetection:
         titles = _detect_multi_titles(text)
         assert len(titles) == 0
 
+    def test_date_prefixed_two_line_title_reassembled(self):
+        text = (
+            "4 Oct My Friend's Little Sister Has It In for Me!\n"
+            "5 Oct Digimon Beatbreak\n"
+            "5 Oct Si-Vis: The Sound of\n"
+            "Heroes"
+        )
+        titles = _detect_multi_titles(text)
+        assert len(titles) == 3
+        assert any("Si-Vis: The Sound of Heroes" in t for t in titles)
+
 
 class TestDetectMultiTitlesCarousel:
     """Episode-delimited carousel branch: look-back guard logic (2026-04-26)."""
