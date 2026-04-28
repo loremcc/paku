@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paku"
-version = "1.0.0"
+version = "1.0.1"
 description = "CLI pipeline that extracts anime titles, URLs, and recipes from Instagram screenshots"
 readme = "README.md"
 license = { text = "MPL-2.0" }

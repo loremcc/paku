@@ -1,26 +1,26 @@
 # paku
 
-[![CI](https://github.com/loremcc/paku/actions/workflows/ci.yml/badge.svg)](https://github.com/loremcc/paku/actions/workflows/ci.yml)
+[![CI](https://github.com/loremcc/paku/actions/workflows/ci.yml/badge.svg)](https://github.com/loremcc/paku/actions/workflows/ci.yml) [![PyPI version](https://img.shields.io/pypi/v/paku.svg)](https://pypi.org/project/paku/) [![Python versions](https://img.shields.io/pypi/pyversions/paku.svg)](https://pypi.org/project/paku/) [![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-brightgreen.svg)](https://github.com/loremcc/paku/blob/main/LICENSE) [![GitHub release](https://img.shields.io/github/v/release/loremcc/paku.svg)](https://github.com/loremcc/paku/releases)
 
 ![paku demo](docs/demo.gif)
 
-CLI tool that turns Instagram screenshots into structured data. Feed it a screenshot and it runs OCR (Google Cloud Vision), classifies the content (anime recommendation, GitHub link, recipe), extracts the relevant data, and writes it in a usable format.
+CLI tool that turns Instagram screenshots into structured data. Feed it a screenshot. It runs OCR (Google Cloud Vision), figures out whether you've shown it an anime recommendation, a GitHub link, or a recipe, pulls the relevant fields, and writes them somewhere you can use.
 
 ## What it does
 
-Three extractors, each purpose-built:
+Three extractors:
 
-- **URL** — 4-tier extraction cascade validated on 34 real screenshots. Regex-matches full URLs (github.com, arxiv.org, etc.), detects non-GitHub domains via curated TLD allowlist, reconstructs GitHub `author/repo` from repo cards, and stubs project-name-only cases for manual review. Handles browser bar truncation (with and without OCR-visible ellipsis), hyphen-broken URLs, filters social platform URLs. Phase 1 gate passed: Tier 1 100%, Tier 2-3 71.4%, Tier 4 100%, zero false positives.
-- **Anime** — 10-pattern title extraction cascade with AniList GraphQL enrichment. Strips Instagram UI chrome (15+ filter categories), detects platform context (AniList app, TikTok, Threads), handles multi-title posts (carousels, numbered lists). Enhanced Levenshtein ratio (substring containment + word-overlap boost) gates auto-acceptance (>= 0.8) vs review queue. Phase 2 gate passed: 30/30 = 100% auto-accepted.
-- **Recipe** — multilingual ingredient block detection (English + Italian anchors), splits each line into quantity + unit + name (never stored as "100g" — always `{qty: 100, unit: "g"}`), handles unicode fractions, wrapped OCR lines, reversed metric-parens format (giallozafferano.com style), instructions extraction, and source account detection. Outputs `.txt` + `.csv` + `.json`. Phase 3 gate passed: 10/10 = 100%.
+- **URL** — 4-tier cascade tested on 34 real screenshots. Matches full URLs (github.com, arxiv.org, etc.), spots non-GitHub domains via a curated TLD allowlist, rebuilds GitHub `author/repo` from repo-card layouts, and stubs project-name-only cases for manual review. Survives browser-bar truncation (with or without a visible ellipsis), hyphen-broken URLs, and social-platform false positives. Phase 1 gate: Tier 1 100%, Tier 2-3 71.4%, Tier 4 100%, zero false positives.
+- **Anime** — 10-pattern title cascade plus AniList GraphQL enrichment. Strips Instagram UI chrome (15+ filter categories), recognises platform context (AniList app, TikTok, Threads), and pulls every title out of carousel and numbered-list posts. An enhanced Levenshtein ratio (substring containment plus a word-overlap boost) decides auto-accept (>= 0.8) vs review queue. Phase 2 gate: 30/30 = 100% auto-accepted.
+- **Recipe** — multilingual ingredient-block detection (English and Italian anchors). Splits every line into quantity, unit, and name. Never stored as "100g" — always `{qty: 100, unit: "g"}`. Handles unicode fractions, wrapped OCR lines, the reversed metric-parens format giallozafferano.com uses, instructions extraction, and source-account detection. Outputs `.txt`, `.csv`, and `.json`. Phase 3 gate: 10/10 = 100%.
 
-Anything the pipeline isn't confident about is queued for manual review instead of being silently discarded.
+Anything the pipeline isn't confident about goes into the review queue instead of getting silently dropped.
 
-`paku serve` starts a local dashboard (FastAPI + vanilla JS SPA) for browsing the extracted collection, uploading new screenshots, and managing watch status. No cloud accounts required; SQLite-backed, runs on 127.0.0.1. Phase 5 gate passed.
+`paku serve` starts a local dashboard (FastAPI plus a vanilla-JS SPA) for browsing what you've extracted, uploading new screenshots, and tracking watch status. The Collection tab has a "Recommended for you" panel that pulls AniList recommendations for your most recently saved title, marks entries you already own, and lets you add the rest with one click. No cloud accounts. SQLite-backed. Runs on 127.0.0.1. Phase 5 gate passed.
 
 ## Status
 
-**v1.0.0** — all three extractors and the dashboard are complete. 513 tests pass. CI runs on every push: lint, test matrix (Python 3.11 + 3.12), wheel build.
+**v1.0.1** — three extractors and the dashboard are complete; the AniList recommendations panel ships with this release. 521 tests pass. CI runs on every push: lint, test matrix (Python 3.11 and 3.12), wheel build. Tagged `v*` pushes auto-publish to PyPI via OIDC Trusted Publishing.
 
 `--smart` flag enables confidence-gated re-run: when fast-path extraction returns confidence < 0.4, the pipeline re-OCRs with a local Ollama VLM (Gemma 4) for richer text and re-extracts. Falls back cleanly if Ollama is unavailable.
 
@@ -107,7 +107,7 @@ Everything works with defaults except OCR credentials. The `ollama` section is o
 ## Tests
 
 ```bash
-# All tests (513 currently)
+# All tests (521 currently)
 python -m pytest
 
 # With coverage
@@ -130,6 +130,7 @@ Test fixtures go in `tests/fixtures/`. Real screenshots are gitignored — popul
 | v0.5 | Batch processing + anime CSV | Done (gate passed 2026-04-24) |
 | v0.6 | Dashboard + product identity | Done (gate passed 2026-04-23) |
 | v1.0 | Polish + open source | Done (2026-04-26) |
+| v1.0.1 | AniList recommendations panel + PyPI auto-publish | Done (2026-04-28) |
 
 Each version has an explicit gate — a minimum accuracy threshold or throughput test measured on real screenshots — that must pass before the next version starts.
 
