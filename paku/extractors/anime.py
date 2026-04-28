@@ -412,7 +412,7 @@ def _detect_multi_titles(text: str) -> list[str]:
         for idx, m in enumerate(iters):
             title = m.group(1).strip()
             next_start = iters[idx + 1].start() if idx + 1 < len(iters) else len(text)
-            tail = text[m.end():next_start]
+            tail = text[m.end() : next_start]
             for ln in tail.splitlines():
                 cont = ln.strip()
                 if not cont:

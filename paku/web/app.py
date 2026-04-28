@@ -63,7 +63,7 @@ class DigestResponse(BaseModel):
 
 def create_app(db_path: str | Path = "paku_web.db") -> FastAPI:
     """Build and return the FastAPI app. Factory is used so tests can pass an isolated DB path."""
-    app = FastAPI(title="paku dashboard", version="1.0.0")
+    app = FastAPI(title="paku dashboard", version="1.0.1")
     db = Database(db_path)
     app.state.db = db
 
@@ -218,18 +218,20 @@ def create_app(db_path: str | Path = "paku_web.db") -> FastAPI:
             title = rec.get("title") or {}
             cover = rec.get("coverImage") or {}
             score = rec.get("averageScore")
-            recs.append({
-                "anilist_id": rec["id"],
-                "english": title.get("english"),
-                "romaji": title.get("romaji"),
-                "cover_image": (
-                    cover.get("extraLarge") or cover.get("large") or cover.get("medium")
-                ),
-                "average_score": score,
-                "media_format": rec.get("format"),
-                "status": rec.get("status"),
-                "saved": db.has_anilist_id(rec["id"]),
-            })
+            recs.append(
+                {
+                    "anilist_id": rec["id"],
+                    "english": title.get("english"),
+                    "romaji": title.get("romaji"),
+                    "cover_image": (
+                        cover.get("extraLarge") or cover.get("large") or cover.get("medium")
+                    ),
+                    "average_score": score,
+                    "media_format": rec.get("format"),
+                    "status": rec.get("status"),
+                    "saved": db.has_anilist_id(rec["id"]),
+                }
+            )
 
         return {
             "recommendations": recs,
