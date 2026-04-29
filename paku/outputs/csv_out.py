@@ -7,10 +7,19 @@ import csv
 import io
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Iterable, Union
 
 if TYPE_CHECKING:
     from ..models import AnimeExtractionResult
+
+AnimeRecord = Union["AnimeExtractionResult", dict[str, Any]]
+
+
+def _field(record: AnimeRecord, key: str, default: Any = None) -> Any:
+    """Read a field from either a Pydantic model or a plain dict."""
+    if isinstance(record, dict):
+        return record.get(key, default)
+    return getattr(record, key, default)
 
 # Exact Notion "Full Catalog" DB property names — single source of truth.
 # Only includes columns paku can populate from AnimeExtractionResult + AniList data.
@@ -85,21 +94,24 @@ def write_csv(ingredients: list[dict], screenshot_stem: str, output_dir: str) ->
 
 
 def write_anime_csv(
-    results: list[AnimeExtractionResult],
+    results: Iterable[AnimeRecord],
     output_path: Path,
 ) -> Path:
     """Write anime results to a Notion-importable CSV at output_path.
 
-    Deduplicates by dedup_key (higher confidence wins).
+    Accepts either AnimeExtractionResult objects or plain dicts (per-image JSON
+    rehydrated from disk). Deduplicates by dedup_key (higher confidence wins).
     Headers are from ANIME_CSV_HEADERS — exact Notion DB property names.
     Uses atomic write: writes to .tmp then os.replace.
     """
-    # Dedup: keep highest-confidence result per dedup_key
-    seen: dict[str, AnimeExtractionResult] = {}
+    # Dedup: keep highest-confidence record per dedup_key
+    seen: dict[str, AnimeRecord] = {}
     for res in results:
-        key = getattr(res, "dedup_key", None) or getattr(res, "raw_title", "")
+        key = _field(res, "dedup_key") or _field(res, "raw_title") or ""
         existing = seen.get(key)
-        if existing is None or res.confidence > existing.confidence:
+        confidence = _field(res, "confidence", 0.0) or 0.0
+        existing_conf = (_field(existing, "confidence", 0.0) or 0.0) if existing else -1.0
+        if existing is None or confidence > existing_conf:
             seen[key] = res
 
     output_path = Path(output_path)
@@ -116,26 +128,26 @@ def write_anime_csv(
     writer.writeheader()
 
     for res in seen.values():
-        canonical = getattr(res, "canonical_title", None)
-        raw = getattr(res, "raw_title", "") or ""
+        canonical = _field(res, "canonical_title")
+        raw = _field(res, "raw_title") or ""
         # Skip entries with no resolvable title.
         if not canonical and not raw:
             continue
         # Skip unresolved (no AniList match) entries flagged for review — these
         # are multi-title blobs or poor-OCR rows that add no signal to Notion.
-        if not canonical and getattr(res, "needs_review", False):
+        if not canonical and _field(res, "needs_review", False):
             continue
-        media_format = getattr(res, "media_format", None)
-        source = getattr(res, "source", None)
-        debut_year = getattr(res, "debut_year", None)
-        country = getattr(res, "country_of_origin", None)
-        studios = getattr(res, "studios", [])
+        media_format = _field(res, "media_format")
+        source = _field(res, "source")
+        debut_year = _field(res, "debut_year")
+        country = _field(res, "country_of_origin")
+        studios = _field(res, "studios") or []
 
         writer.writerow(
             {
                 "English Title": canonical or raw,
-                "Romaji Title": getattr(res, "romaji", "") or "",
-                "Cover": getattr(res, "cover_image", "") or "",
+                "Romaji Title": _field(res, "romaji") or "",
+                "Cover": _field(res, "cover_image") or "",
                 "Format": _FORMAT_MAP.get(media_format or "", media_format or ""),
                 "Source": _SOURCE_MAP.get(source or "", source or ""),
                 "Debut Year": str(debut_year) if debut_year is not None else "",

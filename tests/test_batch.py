@@ -171,6 +171,62 @@ class TestProcessBatch:
         assert report.failed == 1
         assert report.processed == 1
 
+    def test_none_result_is_checkpointed(self, tmp_path):
+        """Permanent failures (poor_ocr / load_error) must be checkpointed.
+
+        Otherwise --resume will re-OCR them every batch run and re-queue
+        duplicate entries indefinitely.
+        """
+        img_dir = tmp_path / "imgs"
+        img_dir.mkdir()
+        bad = _make_png(img_dir, "broken.png")
+        out_dir = tmp_path / "out"
+
+        with patch("paku.pipeline.process_image") as mock_pi, \
+             patch("paku.context.AppContext") as mock_ctx:
+            mock_ctx.instance.return_value.config = {
+                "outputs": {"base_dir": str(out_dir), "review_queue": str(tmp_path / "rq.json")}
+            }
+            mock_ctx.instance.return_value.logger = MagicMock()
+            mock_pi.return_value = None
+
+            process_batch(img_dir)
+
+        cp = out_dir / ".paku_checkpoint"
+        assert cp.exists()
+        assert str(bad) in cp.read_text(encoding="utf-8"), (
+            "permanent-failure image must be in checkpoint to prevent re-OCR on resume"
+        )
+
+    def test_batch_error_not_checkpointed_for_retry(self, tmp_path):
+        """Unhandled exceptions in process_image are kept un-checkpointed.
+
+        These could be transient (network blip, lock contention) — give them a
+        chance to succeed on next --resume run.
+        """
+        img_dir = tmp_path / "imgs"
+        img_dir.mkdir()
+        flaky = _make_png(img_dir, "flaky.png")
+        out_dir = tmp_path / "out"
+
+        with patch("paku.pipeline.process_image") as mock_pi, \
+             patch("paku.context.AppContext") as mock_ctx, \
+             patch("paku.pipeline.append_review_queue"):
+            mock_ctx.instance.return_value.config = {
+                "outputs": {"base_dir": str(out_dir), "review_queue": str(tmp_path / "rq.json")}
+            }
+            mock_ctx.instance.return_value.logger = MagicMock()
+            mock_pi.side_effect = RuntimeError("transient")
+
+            process_batch(img_dir)
+
+        cp = out_dir / ".paku_checkpoint"
+        # Either the file doesn't exist or it doesn't contain the flaky image.
+        if cp.exists():
+            assert str(flaky) not in cp.read_text(encoding="utf-8"), (
+                "batch_error images must NOT be checkpointed — they're retryable"
+            )
+
     def test_checkpoint_resume_skips_processed(self, tmp_path):
         img_dir = tmp_path / "imgs"
         img_dir.mkdir()
@@ -437,3 +493,104 @@ class TestMultiTitleExtractionsOutput:
 
         txt = (tmp_path / "anime_titles.txt").read_text(encoding="utf-8")
         assert "PLUTO" in txt
+
+
+class TestMultiTitleJsonFanOut:
+    """Per-image JSON write must NOT drop multi-title extractions.
+
+    Regression: pipeline previously wrote only `result["extraction"]` (the first
+    title) to disk — 2nd/3rd titles in `result["extractions"]` were silently lost.
+    Fix writes one indexed file per extraction.
+    """
+
+    def _multi_anime_result(self, screenshot_path: str) -> dict:
+        ex1 = _make_extraction_dict("Attack on Titan", "Attack on Titan", 101)
+        ex2 = _make_extraction_dict("One Piece", "One Piece", 102)
+        ex3 = _make_extraction_dict("Naruto", "Naruto", 103)
+        return {
+            "screenshot": screenshot_path,
+            "content_type": "anime",
+            "extraction": ex1,
+            "extractions": [ex1, ex2, ex3],
+        }
+
+    def test_multi_title_writes_one_file_per_extraction(self, tmp_path):
+        from paku.outputs.json_out import write_json
+        from paku.pipeline import process_image  # noqa: F401 — import sanity
+
+        result = self._multi_anime_result(str(tmp_path / "scr.png"))
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        # Replicate the pipeline's JSON fan-out logic for the multi-title path.
+        stem = "scr"
+        for idx, ex in enumerate(result["extractions"], start=1):
+            json_stem = stem if idx == 1 else f"{stem}_{idx}"
+            write_json(ex, json_stem, out_dir)
+
+        files = sorted(p.name for p in out_dir.glob("*.json"))
+        assert files == ["scr.json", "scr_2.json", "scr_3.json"]
+
+        first = json.loads((out_dir / "scr.json").read_text("utf-8"))
+        second = json.loads((out_dir / "scr_2.json").read_text("utf-8"))
+        third = json.loads((out_dir / "scr_3.json").read_text("utf-8"))
+        assert first["canonical_title"] == "Attack on Titan"
+        assert second["canonical_title"] == "One Piece"
+        assert third["canonical_title"] == "Naruto"
+
+    def test_pipeline_writes_all_extractions_via_process_image(self, tmp_path, monkeypatch):
+        """End-to-end: process_image with multi-title result writes N JSONs."""
+        from paku import pipeline as _pipeline
+
+        png = _make_png(tmp_path, "scr.png")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+
+        ex1 = _make_extraction_dict("Title A", "Title A", 101)
+        ex2 = _make_extraction_dict("Title B", "Title B", 102)
+
+        # Stub the pipeline to skip OCR/classify/extract — just exercise the
+        # fan-out branch by patching the dispatch result.
+        from paku.models import AnimeExtractionResult, OcrResult
+
+        anime_results = [
+            AnimeExtractionResult.model_validate(ex1),
+            AnimeExtractionResult.model_validate(ex2),
+        ]
+
+        ctx = MagicMock()
+        ctx.config = {
+            "outputs": {"base_dir": str(out_dir), "review_queue": str(tmp_path / "rq.json")}
+        }
+        ctx.logger = MagicMock()
+        ctx.resolve_engine.return_value.extract.return_value = OcrResult(
+            engine="stub", raw_text="A and B", confidence=0.9
+        )
+        # AppContext is a local import inside process_image — patch via paku.context.
+        monkeypatch.setattr("paku.context.AppContext.instance", staticmethod(lambda: ctx))
+        monkeypatch.setattr(_pipeline, "guard_ocr_quality", lambda _t: None)
+        monkeypatch.setattr(_pipeline, "classify_screen_type", lambda _t: "post")
+        monkeypatch.setattr(_pipeline, "classify_content", lambda *_a, **_k: "anime")
+        monkeypatch.setattr(
+            "paku.extractors.anime.extract", lambda **_k: anime_results
+        )
+
+        _pipeline.process_image(png, mode="anime", outputs=["json"])
+
+        files = sorted(p.name for p in out_dir.glob("*.json"))
+        assert files == ["scr.json", "scr_2.json"]
+        first = json.loads((out_dir / "scr.json").read_text("utf-8"))
+        second = json.loads((out_dir / "scr_2.json").read_text("utf-8"))
+        assert first["canonical_title"] == "Title A"
+        assert second["canonical_title"] == "Title B"
+
+    def test_single_title_writes_one_file_unsuffixed(self, tmp_path):
+        """Single-title (no extractions plural) keeps existing single-file format."""
+        from paku.outputs.json_out import write_json
+
+        single_ex = _make_extraction_dict("Solo Title", "Solo Title", 200)
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        write_json(single_ex, "scr", out_dir)
+
+        files = sorted(p.name for p in out_dir.glob("*.json"))
+        assert files == ["scr.json"]

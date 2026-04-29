@@ -212,3 +212,38 @@ class TestWriteAnimeNotionCsv:
         tmp = tmp_path / "out.csv.tmp"
         assert not tmp.exists()
         assert out.exists()
+
+    def test_accepts_dict_input(self, tmp_path):
+        """Per-image JSONs are dicts on disk; write_anime_csv must consume them directly."""
+        d = _make_result().model_dump()
+        out = write_anime_csv([d], tmp_path / "out.csv")
+        rows = list(csv.DictReader(out.read_text(encoding="utf-8").splitlines()))
+        assert len(rows) == 1
+        assert rows[0]["English Title"] == "Test Anime"
+        assert rows[0]["Studios"] == "Madhouse"
+
+    def test_mixed_model_and_dict_input(self, tmp_path):
+        """Caller may mix Pydantic models and dicts in the same call."""
+        model = _make_result(
+            raw_title="From Model", canonical_title="From Model", dedup_key="m1"
+        )
+        d = _make_result(
+            raw_title="From Dict", canonical_title="From Dict", dedup_key="d1"
+        ).model_dump()
+        out = write_anime_csv([model, d], tmp_path / "out.csv")
+        rows = list(csv.DictReader(out.read_text(encoding="utf-8").splitlines()))
+        titles = sorted(r["English Title"] for r in rows)
+        assert titles == ["From Dict", "From Model"]
+
+    def test_dict_dedup_keeps_higher_confidence(self, tmp_path):
+        """Dedup logic must respect dict confidence values, not crash on missing attributes."""
+        low = _make_result(
+            canonical_title="Low Conf", confidence=0.4, dedup_key="same"
+        ).model_dump()
+        high = _make_result(
+            canonical_title="High Conf", confidence=0.9, dedup_key="same"
+        ).model_dump()
+        out = write_anime_csv([low, high], tmp_path / "out.csv")
+        rows = list(csv.DictReader(out.read_text(encoding="utf-8").splitlines()))
+        assert len(rows) == 1
+        assert rows[0]["English Title"] == "High Conf"

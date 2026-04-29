@@ -229,6 +229,10 @@ def process_batch(
             continue
 
         if result is None:
+            # Permanent OCR/load failure — already queued by process_image.
+            # Checkpoint so --resume doesn't re-OCR the same broken file every run
+            # and re-queue duplicate entries. Re-running won't change the outcome.
+            _append_checkpoint(checkpoint_path, img_str)
             failed += 1
             review_queued += 1
             continue
@@ -521,7 +525,16 @@ def process_image(
         if "json" in outputs:
             from .outputs.json_out import write_json
 
-            write_json(result["extraction"], stem, output_dir)
+            # Multi-title anime screenshots fan out one JSON per extraction —
+            # `result["extraction"]` alone would silently drop 2nd/3rd titles.
+            # Suffix scheme: <stem>.json (first), <stem>_2.json, <stem>_3.json, ...
+            extractions = result.get("extractions")
+            if extractions and content_type == "anime":
+                for idx, ex in enumerate(extractions, start=1):
+                    json_stem = stem if idx == 1 else f"{stem}_{idx}"
+                    write_json(ex, json_stem, output_dir)
+            else:
+                write_json(result["extraction"], stem, output_dir)
 
         if "txt" in outputs:
             from .outputs.txt_out import write_txt

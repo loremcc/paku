@@ -3,6 +3,7 @@ from __future__ import annotations
 # Extracts anime/manga titles from Instagram screenshot OCR text.
 # Priority: AniList-enriched result when ratio >= 0.8; review queue otherwise.
 # Structural template: follows url.py conventions (one public extract(), helpers private).
+import random
 import re
 import time
 from datetime import datetime, timezone
@@ -711,42 +712,161 @@ def _extract_title(text: str, full_text: str | None = None) -> tuple[str | None,
 _ANILIST_RETRIES = 3
 _ANILIST_TIMEOUT = 15  # seconds per attempt
 _ANILIST_BACKOFF = (1, 2, 4)  # seconds between retries
-# Proactive throttle: AniList enforces 90 req/min per IP. 0.7 s/call = ~85 RPM.
-_ANILIST_MIN_INTERVAL = 0.7
+# AniList enforces ~90 req/min per IP with a sliding/burst-aware window.
+# We target ~75 RPM (0.8s spacing) for headroom + jitter to avoid clock-aligned
+# bursts. The authoritative quota signal is `X-RateLimit-Remaining` from each
+# response — we honour it and pause until `X-RateLimit-Reset` if it dips low.
+_ANILIST_MIN_INTERVAL = 0.8
+_ANILIST_JITTER_MAX = 0.15  # uniform [0, 0.15)s added to each spacing wait
+# When `X-RateLimit-Remaining` falls to or below this floor, sleep until reset
+# rather than risk the next call tripping the limit.
+_ANILIST_REMAINING_FLOOR = 5
+# Circuit-breaker cooldown after a 403 IP block. AniList blocks usually clear
+# within ~30 min; during that window every query returns 403, so short-circuit
+# rather than spamming the API and burning the rest of the batch.
+_ANILIST_BLOCK_COOLDOWN = 1800.0  # seconds
 _anilist_last_call: float = 0.0
+_anilist_blocked_until: float = 0.0
+# Latest quota signal from AniList response headers; None until first response.
+_anilist_remaining: int | None = None
+_anilist_reset_at: float = 0.0  # wall-clock epoch when the quota window resets
+
+
+def _anilist_circuit_open() -> bool:
+    """Return True while the 403 cooldown is still active."""
+    return time.monotonic() < _anilist_blocked_until
+
+
+def reset_anilist_circuit() -> None:
+    """Clear cooldown + cached quota — call after a manual unblock or in tests."""
+    global _anilist_blocked_until, _anilist_remaining, _anilist_reset_at
+    _anilist_blocked_until = 0.0
+    _anilist_remaining = None
+    _anilist_reset_at = 0.0
+
+
+def _trip_anilist_circuit(logger: Logger, retry_after: float | None = None) -> None:
+    """Engage the 403 cooldown so subsequent queries short-circuit.
+
+    If AniList sent a Retry-After header we honour that; otherwise default to
+    `_ANILIST_BLOCK_COOLDOWN`. The cap is 1 hour so a misbehaving header
+    cannot wedge the process indefinitely.
+    """
+    global _anilist_blocked_until
+    cooldown = min(retry_after, 3600.0) if retry_after else _ANILIST_BLOCK_COOLDOWN
+    _anilist_blocked_until = time.monotonic() + cooldown
+    logger.error(
+        f"[anime] AniList 403 — circuit open for {cooldown:.0f}s; "
+        "remaining queries will short-circuit to network_error"
+    )
+
+
+def _wait_for_anilist_quota() -> None:
+    """Block until safe to make the next AniList request.
+
+    Combines three signals:
+      1. `_ANILIST_MIN_INTERVAL` — fixed minimum spacing between calls.
+      2. Random jitter — desyncs from AniList's bucket boundary.
+      3. `X-RateLimit-Remaining` — if low, sleep until `X-RateLimit-Reset`.
+
+    Updates `_anilist_last_call` so the caller can rely on it post-return.
+    """
+    global _anilist_last_call, _anilist_remaining
+
+    # If the last response said we are nearly out of quota, wait for the window
+    # to reset before issuing the next call. Treats `_anilist_remaining` as a
+    # one-shot signal: clear it after acting so subsequent calls re-evaluate
+    # against the next response.
+    if (
+        _anilist_remaining is not None
+        and _anilist_remaining <= _ANILIST_REMAINING_FLOOR
+        and _anilist_reset_at > 0
+    ):
+        wait = _anilist_reset_at - time.time()
+        if wait > 0:
+            # +0.25s safety margin for clock skew between client and AniList.
+            time.sleep(wait + 0.25)
+        _anilist_remaining = None
+
+    elapsed = time.monotonic() - _anilist_last_call
+    spacing = _ANILIST_MIN_INTERVAL + random.uniform(0.0, _ANILIST_JITTER_MAX)
+    if elapsed < spacing:
+        time.sleep(spacing - elapsed)
+    _anilist_last_call = time.monotonic()
+
+
+def _ingest_anilist_quota_headers(resp: requests.Response) -> None:
+    """Cache the rate-limit headers AniList returned with this response."""
+    global _anilist_remaining, _anilist_reset_at
+    remaining = resp.headers.get("X-RateLimit-Remaining")
+    reset = resp.headers.get("X-RateLimit-Reset")
+    if remaining is not None:
+        try:
+            _anilist_remaining = int(remaining)
+        except ValueError:
+            _anilist_remaining = None
+    if reset is not None:
+        try:
+            _anilist_reset_at = float(reset)
+        except ValueError:
+            _anilist_reset_at = 0.0
+
+
+def _retry_after_seconds(resp: requests.Response, default: float) -> float:
+    """Parse a `Retry-After` header value (seconds) with a sane fallback."""
+    raw = resp.headers.get("Retry-After")
+    if raw is None:
+        return default
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return default
 
 
 def _query_anilist(search: str, media_type: str, logger: Logger) -> tuple[dict | None, str | None]:
     """POST to AniList GraphQL. Returns (media_dict | None, error_type | None).
 
-    Proactively throttles to ~85 RPM to stay under AniList's 90 RPM limit.
-    Retries up to _ANILIST_RETRIES times with exponential backoff on transient
-    network errors (timeouts, connection resets). 429 rate-limit waits the
-    Retry-After header value before the next attempt.
+    Rate-limit strategy:
+      - Every attempt (including retries) waits via `_wait_for_anilist_quota`,
+        which enforces minimum spacing + jitter and pauses until the reset
+        window if AniList's last `X-RateLimit-Remaining` was at the floor.
+      - 429 honours `Retry-After` exactly, then re-throttles before retry.
+      - 403 is treated as an IP block: trip the circuit (honouring
+        `Retry-After` if present, capped at 1h) and bail.
+      - Successful responses update the cached quota headers for the next call.
     """
-    global _anilist_last_call
-    elapsed = time.monotonic() - _anilist_last_call
-    if elapsed < _ANILIST_MIN_INTERVAL:
-        time.sleep(_ANILIST_MIN_INTERVAL - elapsed)
-    _anilist_last_call = time.monotonic()
+    if _anilist_circuit_open():
+        return None, "network_error"
 
+    last_err: str | None = None
     for attempt in range(_ANILIST_RETRIES):
+        # Throttle before EVERY attempt, not just the first — retries must not
+        # burst past the limit even when the previous attempt failed.
+        _wait_for_anilist_quota()
         try:
             resp = requests.post(
                 _ANILIST_URL,
                 json={"query": _ANILIST_QUERY, "variables": {"search": search, "type": media_type}},
                 timeout=_ANILIST_TIMEOUT,
             )
+            _ingest_anilist_quota_headers(resp)
             # AniList returns 404 when no anime matches the search term — treat as no result.
             if resp.status_code == 404:
                 logger.debug(f"[anime] AniList no result (404) for '{search}' type={media_type}")
                 return None, None
+            # 403 is an IP block, not a transient error — trip the circuit and bail.
+            if resp.status_code == 403:
+                _trip_anilist_circuit(logger, _retry_after_seconds(resp, default=0.0) or None)
+                return None, "network_error"
             if resp.status_code == 429:
-                wait = int(resp.headers.get("Retry-After", _ANILIST_BACKOFF[min(attempt, 2)]))
+                wait = _retry_after_seconds(
+                    resp, default=float(_ANILIST_BACKOFF[min(attempt, 2)])
+                )
                 logger.warning(
-                    f"[anime] AniList rate-limited, waiting {wait}s (attempt {attempt + 1})"
+                    f"[anime] AniList rate-limited, waiting {wait:.1f}s (attempt {attempt + 1})"
                 )
                 time.sleep(wait)
+                last_err = "rate_limit"
                 continue
             resp.raise_for_status()
             data = resp.json()
@@ -758,13 +878,17 @@ def _query_anilist(search: str, media_type: str, logger: Logger) -> tuple[dict |
                 f"[anime] AniList timeout for '{search}' type={media_type} "
                 f"(attempt {attempt + 1}/{_ANILIST_RETRIES})"
             )
+            last_err = "timeout"
             if attempt < _ANILIST_RETRIES - 1:
                 time.sleep(_ANILIST_BACKOFF[attempt])
         except Exception as e:
             logger.exception(f"[anime] AniList call failed for '{search}' type={media_type}: {e}")
             return None, "network_error"
 
-    logger.error(f"[anime] AniList gave up after {_ANILIST_RETRIES} attempts for '{search}'")
+    logger.error(
+        f"[anime] AniList gave up after {_ANILIST_RETRIES} attempts "
+        f"for '{search}' (last_err={last_err})"
+    )
     return None, "network_error"
 
 
@@ -834,10 +958,39 @@ def _compute_best_ratio(raw_title: str, titles: dict) -> float:
     )
 
 
+# Common English/OCR-junk tokens that fuzzy-match arbitrary AniList entries
+# (e.g. "none" → manga "GONE" at ratio=0.75, "real" → "Ream" at 0.75).
+# Short, single-word, non-title strings — never pass them to AniList.
+_GARBAGE_RAW_TITLES: frozenset[str] = frozenset({
+    "none", "real", "test", "null", "undefined", "true", "false",
+    "yes", "no", "n/a", "na", "ok", "okay", "nope", "nan",
+})
+
+
+def _is_garbage_raw_title(raw_title: str) -> bool:
+    """Return True if raw_title is OCR junk that must not query AniList."""
+    cleaned = raw_title.strip().lower()
+    if not cleaned:
+        return True
+    if cleaned in _GARBAGE_RAW_TITLES:
+        return True
+    # Pure punctuation / digits / single char after stripping non-word chars.
+    alnum = re.sub(r"[^a-z0-9]", "", cleaned)
+    if len(alnum) < 2:
+        return True
+    return False
+
+
 def _query_anilist_best(
     query_title: str, raw_title: str, logger: Logger
 ) -> tuple[dict | None, float, str | None]:
     """Try ANIME then MANGA if ratio < 0.5. Returns (media, ratio, error_type)."""
+    # Reject OCR-junk raw titles before any network call — they fuzzy-match
+    # arbitrary AniList entries at high enough ratio to slip past the gate.
+    if _is_garbage_raw_title(raw_title):
+        logger.debug(f"[anime] skipping garbage raw_title={raw_title!r}")
+        return None, 0.0, None
+
     # Strip year and leading numbers before querying
     search = _STRIP_YEAR_RE.sub("", query_title).strip()
     search = re.sub(r"^\d+\.\s*", "", search).strip()

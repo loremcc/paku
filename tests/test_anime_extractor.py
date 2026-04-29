@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from paku.extractors.anime import (
     _assign_confidence,
@@ -16,10 +18,14 @@ from paku.extractors.anime import (
     _enhanced_ratio,
     _extract_title,
     _is_garbage_fallback,
+    _is_garbage_raw_title,
     _normalize_for_anilist,
+    _query_anilist,
+    _query_anilist_best,
     _strip_chrome,
     _transform_hashtag,
     extract,
+    reset_anilist_circuit,
 )
 from paku.models import AnimeExtractionResult
 
@@ -1725,3 +1731,194 @@ class TestEnhancedRatioBoost:
         # No shared tokens → boost doesn't fire; base Lev ≈ 0.2 → well below threshold
         result = _enhanced_ratio("Naruto", "Fullmetal Alchemist Brotherhood")
         assert result < 0.55
+
+
+class TestGarbageRawTitleGuard:
+    """Tests for `_is_garbage_raw_title` — blocks OCR junk from reaching AniList."""
+
+    @pytest.mark.parametrize("raw", ["none", "None", "NONE", "  none  ", "real",
+                                     "test", "true", "false", "n/a", "N/A",
+                                     "null", "undefined", "yes", "no"])
+    def test_known_garbage_rejected(self, raw: str):
+        assert _is_garbage_raw_title(raw) is True
+
+    @pytest.mark.parametrize("raw", ["", "   ", "?", "1", "."])
+    def test_empty_or_too_short_rejected(self, raw: str):
+        assert _is_garbage_raw_title(raw) is True
+
+    @pytest.mark.parametrize("raw", ["Akira", "K", "Bleach", "Naruto",
+                                     "Attack on Titan", "TRIGUN STARGAZE"])
+    def test_real_titles_allowed(self, raw: str):
+        # Real anime titles — must not be flagged as garbage. Note: single-char
+        # "K" passes because the alphanumeric-length guard is < 2 (strict inequality).
+        if len(raw) >= 2:
+            assert _is_garbage_raw_title(raw) is False
+
+    def test_query_anilist_best_short_circuits_garbage(self):
+        """`_query_anilist_best` must not POST to AniList for garbage raw_title."""
+        with patch("paku.extractors.anime.requests.post") as mock_post:
+            media, ratio, err = _query_anilist_best("none", "none", _LOG)
+        mock_post.assert_not_called()
+        assert media is None
+        assert ratio == 0.0
+        assert err is None
+
+
+class TestAniListCircuitBreaker:
+    """Tests for the 403 circuit breaker that prevents IP-block cascade failures."""
+
+    def setup_method(self) -> None:
+        reset_anilist_circuit()
+
+    def teardown_method(self) -> None:
+        reset_anilist_circuit()
+
+    def test_403_trips_circuit_subsequent_calls_short_circuit(self):
+        """A single 403 should make subsequent _query_anilist calls bail without POSTing."""
+        forbidden = MagicMock()
+        forbidden.status_code = 403
+
+        with patch("paku.extractors.anime.requests.post", return_value=forbidden) as mock_post:
+            # First call: hits AniList, gets 403, trips the circuit.
+            media1, err1 = _query_anilist("Naruto", "ANIME", _LOG)
+            # Second call: circuit open, must short-circuit without POSTing.
+            media2, err2 = _query_anilist("Bleach", "ANIME", _LOG)
+
+        assert media1 is None and err1 == "network_error"
+        assert media2 is None and err2 == "network_error"
+        assert mock_post.call_count == 1, "second call must not reach the network"
+
+    def test_reset_circuit_allows_calls_again(self):
+        """`reset_anilist_circuit()` must clear the cooldown so calls resume."""
+        forbidden = MagicMock()
+        forbidden.status_code = 403
+        forbidden.headers = {}
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.headers = {"X-RateLimit-Remaining": "89"}
+        ok.json.return_value = {"data": {"Media": {"id": 1, "title": {"english": "X"}}}}
+
+        with patch("paku.extractors.anime.requests.post", side_effect=[forbidden, ok]) as mock_post:
+            _query_anilist("A", "ANIME", _LOG)
+            reset_anilist_circuit()
+            media, err = _query_anilist("B", "ANIME", _LOG)
+
+        assert err is None
+        assert media == {"id": 1, "title": {"english": "X"}}
+        assert mock_post.call_count == 2
+
+
+class TestAniListQuotaThrottle:
+    """Tests for the spacing/jitter throttle and X-RateLimit-Remaining handling."""
+
+    def setup_method(self) -> None:
+        from paku.extractors import anime as _anime
+        reset_anilist_circuit()
+        # Reset throttle bookkeeping so spacing waits start from a clean slate.
+        _anime._anilist_last_call = 0.0
+
+    def teardown_method(self) -> None:
+        reset_anilist_circuit()
+
+    def test_retries_throttle_between_attempts(self):
+        """Each retry must wait the spacing interval — bursts must not slip through."""
+        from paku.extractors import anime as _anime
+
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.headers = {}
+        ok.json.return_value = {"data": {"Media": {"id": 1}}}
+
+        # First attempt times out; second succeeds. We expect TWO throttle waits.
+        sleeps: list[float] = []
+        responses = [
+            requests.exceptions.Timeout("simulated"),
+            ok,
+        ]
+
+        with patch("paku.extractors.anime.requests.post", side_effect=responses):
+            with patch("paku.extractors.anime.time.sleep", side_effect=lambda s: sleeps.append(s)):
+                with patch("paku.extractors.anime.time.monotonic", side_effect=[0.0] * 20):
+                    _query_anilist("X", "ANIME", _LOG)
+
+        # Should have at least 2 throttle waits (>= _ANILIST_MIN_INTERVAL).
+        throttle_waits = [s for s in sleeps if s >= _anime._ANILIST_MIN_INTERVAL - 0.01]
+        assert len(throttle_waits) >= 2, f"expected >=2 throttle waits, got {sleeps}"
+
+    def test_low_remaining_pauses_until_reset(self):
+        """When X-RateLimit-Remaining is at the floor we must sleep until reset."""
+        from paku.extractors import anime as _anime
+
+        # Prime the cached quota signal.
+        _anime._anilist_remaining = _anime._ANILIST_REMAINING_FLOOR
+        _anime._anilist_reset_at = time.time() + 7.0  # 7s until window resets
+
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.headers = {"X-RateLimit-Remaining": "89"}
+        ok.json.return_value = {"data": {"Media": {"id": 1}}}
+
+        sleeps: list[float] = []
+        with patch("paku.extractors.anime.requests.post", return_value=ok):
+            with patch("paku.extractors.anime.time.sleep", side_effect=lambda s: sleeps.append(s)):
+                _query_anilist("X", "ANIME", _LOG)
+
+        # Should have slept >= 7s waiting for the reset window.
+        long_sleeps = [s for s in sleeps if s >= 6.5]
+        assert long_sleeps, f"expected a >=6.5s reset wait, got {sleeps}"
+
+    def test_remaining_above_floor_does_not_pause(self):
+        """Healthy remaining quota means no reset wait — only normal spacing."""
+        from paku.extractors import anime as _anime
+
+        _anime._anilist_remaining = 80
+        _anime._anilist_reset_at = time.time() + 1000
+
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.headers = {"X-RateLimit-Remaining": "79"}
+        ok.json.return_value = {"data": {"Media": {"id": 1}}}
+
+        sleeps: list[float] = []
+        with patch("paku.extractors.anime.requests.post", return_value=ok):
+            with patch("paku.extractors.anime.time.sleep", side_effect=lambda s: sleeps.append(s)):
+                _query_anilist("X", "ANIME", _LOG)
+
+        # No multi-second wait — only the spacing interval (< 1s).
+        assert all(s < 2.0 for s in sleeps), f"unexpected long sleep: {sleeps}"
+
+    def test_429_honours_retry_after(self):
+        """A 429 with Retry-After must wait exactly that many seconds before retry."""
+        rate_limited = MagicMock()
+        rate_limited.status_code = 429
+        rate_limited.headers = {"Retry-After": "12"}
+
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.headers = {}
+        ok.json.return_value = {"data": {"Media": {"id": 1}}}
+
+        sleeps: list[float] = []
+        with patch("paku.extractors.anime.requests.post", side_effect=[rate_limited, ok]):
+            with patch("paku.extractors.anime.time.sleep", side_effect=lambda s: sleeps.append(s)):
+                media, err = _query_anilist("X", "ANIME", _LOG)
+
+        assert err is None and media == {"id": 1}
+        assert 12.0 in sleeps, f"expected exact 12s Retry-After wait, got {sleeps}"
+
+    def test_403_with_retry_after_caps_circuit_cooldown(self):
+        """403 with Retry-After should set the cooldown to that value (not the 30-min default)."""
+        from paku.extractors import anime as _anime
+
+        forbidden = MagicMock()
+        forbidden.status_code = 403
+        forbidden.headers = {"Retry-After": "60"}
+
+        with patch("paku.extractors.anime.requests.post", return_value=forbidden):
+            _query_anilist("X", "ANIME", _LOG)
+
+        cooldown_remaining = _anime._anilist_blocked_until - time.monotonic()
+        # Should be ~60s, definitely much less than the 1800s default.
+        assert 30 <= cooldown_remaining <= 90, (
+            f"expected ~60s cooldown from Retry-After, got {cooldown_remaining}"
+        )

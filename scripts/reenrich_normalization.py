@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
 from paku.extractors.anime import (  # noqa: E402
     _COUNTRY_MAP,
     _assign_confidence,
+    _is_garbage_raw_title,
     _normalize_for_anilist,
     _query_anilist_best,
 )
@@ -177,6 +178,7 @@ def main() -> int:
             or (e.get("reason") or "").startswith("low_ratio")
         )
         and (e.get("raw_title") or "").strip()
+        and not _is_garbage_raw_title(e.get("raw_title") or "")
     ]
 
     by_reason: dict[str, int] = {}
