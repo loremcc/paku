@@ -16,13 +16,13 @@ Three extractors:
 
 Anything the pipeline isn't confident about goes into the review queue instead of getting silently dropped.
 
-`paku serve` starts a local dashboard (FastAPI plus a vanilla-JS SPA) for browsing what you've extracted, uploading new screenshots, and tracking watch status. The Collection tab has a "Recommended for you" panel that pulls AniList recommendations for your most recently saved title, marks entries you already own, and lets you add the rest with one click. No cloud accounts. SQLite-backed. Runs on 127.0.0.1. Phase 5 gate passed.
+`paku serve` starts a local dashboard (FastAPI + vanilla JS SPA) for browsing your collection, uploading screenshots, tracking watch status, and discovering what to watch next. Two recommendation engines: a "For You" panel powered by a local Ollama LLM that analyses your collection context, and a "Similar to…" panel that queries AniList's community recommendation graph. A dedicated Recs tab surfaces both. Import your existing Notion anime database with `paku import-notion` to merge watch statuses and personal scores. SQLite-backed. Runs on 127.0.0.1. No cloud accounts. Phase 5 gate passed.
 
 ## Status
 
-**v1.0.1** — three extractors and the dashboard are complete; the AniList recommendations panel ships with this release. 521 tests pass. CI runs on every push: lint, test matrix (Python 3.11 and 3.12), wheel build. Tagged `v*` pushes auto-publish to PyPI via OIDC Trusted Publishing.
+**v1.1.0** — three extractors, batch processing, dashboard, Notion status import, local AI-powered semantic recommendations, and dashboard branding are complete. 620 tests pass. CI runs on every push: lint, test matrix (Python 3.11 and 3.12), wheel build. Tagged `v*` pushes auto-publish to PyPI via OIDC Trusted Publishing.
 
-`--smart` flag enables confidence-gated re-run: when fast-path extraction returns confidence < 0.4, the pipeline re-OCRs with a local Ollama VLM (Gemma 4) for richer text and re-extracts. Falls back cleanly if Ollama is unavailable.
+`--smart` flag enables confidence-gated re-run: when fast-path extraction returns confidence < 0.4, the pipeline re-OCRs with a local Ollama VLM (Gemma 4, custom model from `Modelfile.paku`) for richer text and re-extracts. Falls back cleanly if Ollama is unavailable.
 
 Batch mode produces three consolidated outputs: `anime_titles.txt` / `urls.txt` / `recipe_titles.txt` (one entry per line, deduped), plus `anime_export.csv` (9 property columns, ready to import). Per-image JSON is written throughout.
 
@@ -76,6 +76,10 @@ paku digest ./screenshots/ --report
 # Dashboard — browse collection, upload screenshots, manage watch status
 paku serve
 paku serve --port 8080 --host 127.0.0.1
+
+# Import Notion anime database CSV — merge watch statuses and scores
+paku import-notion notion-anime-db.csv --dry-run   # preview matches
+paku import-notion notion-anime-db.csv              # commit merge
 ```
 
 Batch mode writes a `.paku_checkpoint` file in the output directory. Each successfully processed image is recorded there, so `--resume` (the default) skips it on the next run.
@@ -98,16 +102,17 @@ anilist:
   confidence_threshold: 0.8
 
 ollama:
-  base_url: "http://localhost:11434"  # or LAN host running Ollama
-  model: "gemma4-paku:latest"             # custom model (see Modelfile.paku)
+  base_url: "http://localhost:11434"       # or LAN host running Ollama
+  ocr_model: "gemma4-paku:latest"          # VLM for smart OCR re-run (built from Modelfile.paku)
+  recs_model: "gemma4:26b"                # text LLM for semantic recommendations
 ```
 
-Everything works with defaults except OCR credentials. The `ollama` section is optional — `--smart` falls back gracefully if Ollama is unavailable.
+Everything works with defaults except OCR credentials. The `ollama` section is optional — `--smart` falls back gracefully if Ollama is unavailable. The `recs_model` powers the dashboard Recommendations tab.
 
 ## Tests
 
 ```bash
-# All tests (521 currently)
+# All tests (620 currently)
 python -m pytest
 
 # With coverage
@@ -131,6 +136,7 @@ Test fixtures go in `tests/fixtures/`. Real screenshots are gitignored — popul
 | v0.6 | Dashboard + product identity | Done (gate passed 2026-04-23) |
 | v1.0 | Polish + open source | Done (2026-04-26) |
 | v1.0.1 | AniList recommendations panel + PyPI auto-publish | Done (2026-04-28) |
+| v1.1.0 | Semantic recommendations + personal anime DB + branding | Done (2026-04-30) |
 
 Each version has an explicit gate — a minimum accuracy threshold or throughput test measured on real screenshots — that must pass before the next version starts.
 
@@ -157,12 +163,15 @@ paku/
     json_out.py         # Pretty-printed JSON writer (per image)
     txt_out.py          # Per-image text writer + write_batch_txt() (consolidated, deduped)
     csv_out.py          # Recipe ingredient CSV (per image) + write_anime_csv() (post-batch import)
+  inputs/
+    notion_import.py    # Notion CSV parser: parse_notion_csv(), Notion URL cleaning, status mapping
   web/
-    database.py         # SQLite layer: Database class, ingest_pipeline_result, Pydantic models
-    app.py              # FastAPI factory create_app(db_path), 9 endpoints
+    database.py         # SQLite layer: Database class, user_score column, merge_notion_import
+    app.py              # FastAPI factory create_app(db_path), 11 endpoints
+    recommendations.py  # Ollama-powered semantic recs: context → prompt → resolve → cache
     static/
-      index.html        # Vanilla JS + Tailwind SPA — Collection, Add, Review, Dashboard tabs
-Modelfile.paku         # Ollama Modelfile for "gemma4-paku:latest" custom model
+      index.html        # Vanilla JS + Tailwind SPA — 5 tabs (Dashboard/Collection/Recs/Add/Review)
+Modelfile.paku         # Ollama Modelfile for "gemma4-paku:latest" custom VLM
 ```
 
 ## License

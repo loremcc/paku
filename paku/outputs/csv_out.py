@@ -21,6 +21,7 @@ def _field(record: AnimeRecord, key: str, default: Any = None) -> Any:
         return record.get(key, default)
     return getattr(record, key, default)
 
+
 # Exact Notion "Full Catalog" DB property names — single source of truth.
 # Only includes columns paku can populate from AnimeExtractionResult + AniList data.
 ANIME_CSV_HEADERS: list[str] = [

@@ -293,7 +293,8 @@ def _strip_chrome(text: str, platform: str) -> str:
         # Action prompts / input placeholders
         if re.match(
             r"^(?:Add\s+(?:a\s+)?comment|Reply to|See translation"
-            r"|Send message|Not interested|What do you think)",
+            r"|Send message|Not interested|What do you think"
+            r"|Join the conversation)",
             stripped,
             re.IGNORECASE,
         ):
@@ -497,6 +498,15 @@ _GARBAGE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^Add\s+(?:a\s+)?comment", re.IGNORECASE),
     # Form-field placeholder "none" — never a valid anime title
     re.compile(r"^\s*none\s*$", re.IGNORECASE),
+    # Instagram slang opinion prefixes ("NGL this anime is underrated:")
+    re.compile(r"\b(?:NGL|IMO|TBH|FR|ISTG|NFS)\b", re.IGNORECASE),
+    # Caption opinion headers ending with colon ("NGL THIS ANIME IS UNDERRATED:")
+    re.compile(
+        r"(?:THIS\s+ANIME|UNDERRATED|OVERRATED|PEAK|MID|GOATED|SLEPT\s+ON)\b.*:\s*$",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    # Lines that are purely opinion about anime (not a title)
+    re.compile(r"^(?:THIS\s+)?ANIME\s+IS\s+", re.IGNORECASE),
 ]
 
 
@@ -689,18 +699,20 @@ def _extract_title(text: str, full_text: str | None = None) -> tuple[str | None,
         if len(best_allcaps.split()) >= 3:
             return best_allcaps, "allcaps_title"
 
-    # Fallback: longest non-chrome, non-hashtag line — with rejection guard
+    # Fallback: longest non-chrome, non-hashtag line — with rejection guard.
+    # Filter garbage BEFORE ranking so a long garbage line doesn't block
+    # a shorter valid title (e.g. "NGL THIS ANIME IS UNDERRATED:" masking
+    # "Petals of reincarnation").
     candidates = [
         line.strip()
         for line in text.splitlines()
         if len(line.strip()) >= 3
         and not line.strip().startswith("#")
         and not re.match(r"^\d+[hmwdHMWD]$", line.strip())
+        and not _is_garbage_fallback(line.strip())
     ]
     if candidates:
         best = max(candidates, key=len)
-        if _is_garbage_fallback(best):
-            return None, None
         return best, "fallback"
 
     return None, None
@@ -859,9 +871,7 @@ def _query_anilist(search: str, media_type: str, logger: Logger) -> tuple[dict |
                 _trip_anilist_circuit(logger, _retry_after_seconds(resp, default=0.0) or None)
                 return None, "network_error"
             if resp.status_code == 429:
-                wait = _retry_after_seconds(
-                    resp, default=float(_ANILIST_BACKOFF[min(attempt, 2)])
-                )
+                wait = _retry_after_seconds(resp, default=float(_ANILIST_BACKOFF[min(attempt, 2)]))
                 logger.warning(
                     f"[anime] AniList rate-limited, waiting {wait:.1f}s (attempt {attempt + 1})"
                 )
@@ -961,10 +971,25 @@ def _compute_best_ratio(raw_title: str, titles: dict) -> float:
 # Common English/OCR-junk tokens that fuzzy-match arbitrary AniList entries
 # (e.g. "none" → manga "GONE" at ratio=0.75, "real" → "Ream" at 0.75).
 # Short, single-word, non-title strings — never pass them to AniList.
-_GARBAGE_RAW_TITLES: frozenset[str] = frozenset({
-    "none", "real", "test", "null", "undefined", "true", "false",
-    "yes", "no", "n/a", "na", "ok", "okay", "nope", "nan",
-})
+_GARBAGE_RAW_TITLES: frozenset[str] = frozenset(
+    {
+        "none",
+        "real",
+        "test",
+        "null",
+        "undefined",
+        "true",
+        "false",
+        "yes",
+        "no",
+        "n/a",
+        "na",
+        "ok",
+        "okay",
+        "nope",
+        "nan",
+    }
+)
 
 
 def _is_garbage_raw_title(raw_title: str) -> bool:
@@ -1292,6 +1317,10 @@ def extract(
     if platform == "anilist_app":
         logger.debug("[anime] AniList app detected — short-circuit path")
         return _parse_anilist_app(ocr_text, screenshot_path, now)
+
+    # Normalize common Instagram comment prefixes that OCR places before titles
+    # "Sauce petals of reincarnation" → "Petals of reincarnation"
+    ocr_text = re.sub(r"(?im)^Sauce:?\s+", "", ocr_text)
 
     stripped = _strip_chrome(ocr_text, platform)
     logger.debug(f"[anime] chrome stripped: {len(ocr_text)} -> {len(stripped)} chars")

@@ -42,7 +42,7 @@ def cli() -> None:
     "--smart",
     is_flag=True,
     default=False,
-    help="Enable LangExtract (LLM) path.",
+    help="Enable Ollama VLM smart re-run for low-confidence images.",
 )
 @click.option(
     "--output",
@@ -101,6 +101,54 @@ def serve(host: str, port: int, db_path: str) -> None:
     from .web.app import run_server
 
     run_server(host=host, port=port, db_path=db_path)
+
+
+@cli.command("import-notion")
+@click.argument("csv_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Parse and report matches without writing to the database.",
+)
+@click.option(
+    "--db",
+    "db_path",
+    default="paku_web.db",
+    show_default=True,
+    type=click.Path(path_type=str),
+    help="SQLite database file to merge into.",
+)
+def import_notion(csv_path: Path, dry_run: bool, db_path: str) -> None:
+    """Import a Notion CSV export and merge watch statuses into the dashboard DB."""
+    from .inputs.notion_import import parse_notion_csv
+
+    rows = parse_notion_csv(csv_path)
+    if not rows:
+        click.echo("No parsable rows found in CSV.")
+        return
+
+    click.echo(f"Parsed {len(rows)} row(s) from {csv_path}")
+    for row in rows:
+        title = row.get("english_title") or row.get("romaji_title") or row.get("native_title", "?")
+        status = row.get("user_status", "—")
+        score = row.get("user_score", "—")
+        click.echo(f"  {title[:60]:<60s}  status={status:<15s}  score={score}")
+
+    if dry_run:
+        click.echo(
+            f"\n[dry-run] {len(rows)} row(s) would be merged. Run without --dry-run to commit."
+        )
+    else:
+        from .web.database import Database
+
+        db = Database(db_path)
+        stats = db.merge_notion_import(rows, dry_run=False)
+        click.echo(
+            f"\nImport complete: {stats['matched']} matched, "
+            f"{stats['updated']} updated, {stats['created']} created, "
+            f"{stats['skipped']} skipped"
+        )
 
 
 def _run_single(path: Path, mode: str, smart: bool, outputs: list[str]) -> None:

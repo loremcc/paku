@@ -63,7 +63,7 @@ class DigestResponse(BaseModel):
 
 def create_app(db_path: str | Path = "paku_web.db") -> FastAPI:
     """Build and return the FastAPI app. Factory is used so tests can pass an isolated DB path."""
-    app = FastAPI(title="paku dashboard", version="1.0.1")
+    app = FastAPI(title="paku dashboard", version="1.1.0")
     db = Database(db_path)
     app.state.db = db
 
@@ -77,7 +77,10 @@ def create_app(db_path: str | Path = "paku_web.db") -> FastAPI:
         index_html = _STATIC_DIR / "index.html"
         if not index_html.exists():
             raise HTTPException(500, "Frontend not installed")
-        return FileResponse(str(index_html))
+        return FileResponse(
+            str(index_html),
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
 
     # --- Digest ---
 
@@ -188,6 +191,40 @@ def create_app(db_path: str | Path = "paku_web.db") -> FastAPI:
             raise HTTPException(404, f"Anime id {anime_id} not found")
         return entry
 
+    @app.post("/api/collection/import/notion")
+    async def import_notion_csv(
+        file: UploadFile = File(...),
+        dry_run: bool = Query(False),
+    ) -> JSONResponse:
+        try:
+            contents = await file.read()
+        except Exception as exc:
+            raise HTTPException(422, f"Could not read upload: {exc}")
+        if not contents:
+            raise HTTPException(422, "Empty file upload")
+
+        suffix = Path(file.filename or "import.csv").suffix or ".csv"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(contents)
+            tmp_path = Path(tmp.name)
+
+        try:
+            from ..inputs.notion_import import parse_notion_csv
+
+            rows = parse_notion_csv(tmp_path)
+            if not rows:
+                return JSONResponse(
+                    {"rows_parsed": 0, "matched": 0, "updated": 0, "created": 0, "skipped": 0}
+                )
+            stats = db.merge_notion_import(rows, dry_run=dry_run)
+            stats["rows_parsed"] = len(rows)
+            return JSONResponse(stats)
+        finally:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
     @app.delete("/api/collection/{anime_id}")
     def delete_collection_item(anime_id: int) -> JSONResponse:
         if not db.delete_anime(anime_id):
@@ -258,6 +295,26 @@ def create_app(db_path: str | Path = "paku_web.db") -> FastAPI:
         return entry
 
     # --- Stats ---
+
+    # --- Recommendations ---
+
+    @app.get("/api/recommendations")
+    def get_personalized_recommendations(
+        force: bool = Query(False, alias="refresh"),
+    ) -> dict[str, Any]:
+        ctx = AppContext.instance()
+        ollama = (ctx.config or {}).get("ollama", {})
+        base_url = ollama.get("base_url", "")
+        model = ollama.get("recs_model") or ollama.get("model", "")
+        if not base_url or not model:
+            return {
+                "recommendations": [],
+                "reason": "ollama_not_configured",
+                "source": "ollama",
+            }
+        from .recommendations import get_recommendations
+
+        return get_recommendations(db, base_url, model, force_refresh=force)
 
     @app.get("/api/stats", response_model=DashboardStats)
     def stats_endpoint() -> DashboardStats:

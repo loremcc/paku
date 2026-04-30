@@ -28,8 +28,10 @@ The "pending" publisher becomes a real publisher after the first successful rele
 1. **Bump version** in two places (must match):
    - `pyproject.toml` → `version = "X.Y.Z"`
    - `paku/__init__.py` → `__version__ = "X.Y.Z"`
+   - `paku/web/app.py` → `FastAPI(title="paku dashboard", version="X.Y.Z")`
+   - `paku/web/static/index.html` → dashboard version badge
 
-2. **Update changelog** in `tasks/changelog.md` with the release date and notable changes.
+2. **Update changelog** in `tasks/changelog.md` (gitignored) and `docs/claude/roadmap.md` with the release date and notable changes.
 
 3. **Commit and tag:**
    ```bash

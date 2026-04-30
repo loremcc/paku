@@ -30,6 +30,7 @@ class AnimeEntry(BaseModel):
     studios: list[str] = Field(default_factory=list)
     genres: list[str] = Field(default_factory=list)
     score: float | None = None
+    user_score: float | None = None
     episodes: int | None = None
     status: str | None = None
     user_status: str = "Plan to Watch"
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS anime_entries (
     studios TEXT,
     genres TEXT,
     score REAL,
+    user_score REAL,
     episodes INTEGER,
     status TEXT,
     user_status TEXT NOT NULL DEFAULT 'Plan to Watch',
@@ -125,6 +127,15 @@ class Database:
     def _init_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Apply schema migrations idempotently."""
+        with self._connect() as conn:
+            try:
+                conn.execute("ALTER TABLE anime_entries ADD COLUMN user_score REAL")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     # --- anime_entries ---
 
@@ -198,6 +209,121 @@ class Database:
                 return None
             conn.commit()
         return self.get_anime(anime_id)
+
+    def bulk_update_user_status(self, updates: list[dict[str, Any]]) -> int:
+        """Apply user_status and user_score updates from Notion import.
+
+        Each update dict must have 'id' (row PK) and optionally
+        'user_status' and/or 'user_score'. Returns count of updated rows.
+        """
+        count = 0
+        with self._connect() as conn:
+            for u in updates:
+                row_id = u.get("id")
+                if row_id is None:
+                    continue
+                sets = []
+                params: list[Any] = []
+                if "user_status" in u and u["user_status"] is not None:
+                    sets.append("user_status = ?")
+                    params.append(u["user_status"])
+                if "user_score" in u and u["user_score"] is not None:
+                    sets.append("user_score = ?")
+                    params.append(u["user_score"])
+                if not sets:
+                    continue
+                params.append(row_id)
+                cur = conn.execute(
+                    f"UPDATE anime_entries SET {', '.join(sets)} WHERE id = ?",
+                    params,
+                )
+                count += cur.rowcount
+            conn.commit()
+        return count
+
+    def merge_notion_import(
+        self, rows: list[dict[str, Any]], dry_run: bool = False
+    ) -> dict[str, int]:
+        """Merge rows from a Notion CSV export into the dashboard database.
+
+        Each row is a dict from parse_notion_csv(). Matching order:
+        1. anilist_id in the CSV row → DB lookup
+        2. english_title / romaji_title against canonical / romaji columns
+
+        Stats returned: {matched, updated, created, skipped}.
+        """
+        from ..inputs.notion_import import match_rows_to_collection
+
+        # Build collection lookup
+        all_entries = self.list_anime(per_page=100000).items
+        collection_dicts = [
+            {
+                "id": e.id,
+                "anilist_id": e.anilist_id,
+                "canonical_title": e.canonical_title,
+                "romaji": e.romaji,
+                "raw_title": e.raw_title,
+            }
+            for e in all_entries
+        ]
+
+        pairs = match_rows_to_collection(rows, collection_dicts)
+        stats = {"matched": 0, "updated": 0, "created": 0, "skipped": 0}
+
+        if dry_run:
+            for _, match in pairs:
+                if match is not None:
+                    stats["matched"] += 1
+                else:
+                    stats["created"] += 1
+            return stats
+
+        # Phase 1: update matched entries
+        bulk_updates: list[dict[str, Any]] = []
+        for row, match in pairs:
+            if match is not None:
+                stats["matched"] += 1
+                update: dict[str, Any] = {"id": match.get("id")}
+                if row.get("user_status"):
+                    update["user_status"] = row["user_status"]
+                if "user_score" in row:
+                    update["user_score"] = row["user_score"]
+                if len(update) > 1:
+                    bulk_updates.append(update)
+                    stats["updated"] += 1
+
+        self.bulk_update_user_status(bulk_updates)
+
+        # Phase 2: create entries for unmatched rows
+        for row, match in pairs:
+            if match is None:
+                stats["created"] += 1
+                extraction = {
+                    "canonical_title": row.get("english_title") or row.get("romaji_title"),
+                    "raw_title": row.get("english_title")
+                    or row.get("romaji_title")
+                    or row.get("native_title", ""),
+                    "romaji": row.get("romaji_title"),
+                    "native_title": row.get("native_title"),
+                    "media_format": row.get("media_format"),
+                    "source": row.get("source"),
+                    "country_of_origin": row.get("country_of_origin"),
+                    "debut_year": row.get("debut_year"),
+                    "studios": row.get("studios"),
+                    "genres": row.get("genres"),
+                    "user_status": row.get("user_status", "Plan to Watch"),
+                    "user_score": row.get("user_score"),
+                    "cover_image": row.get("cover_image"),
+                    "anilist_url": row.get("anilist_url"),
+                    "anilist_id": row.get("anilist_id"),
+                    "episodes": row.get("episodes"),
+                    "confidence": 1.0,
+                    "needs_review": False,
+                    "extraction_mode": "notion_import",
+                }
+                self.insert_or_update_anime(extraction)
+
+        return stats
 
     def clear_needs_review(self, anime_id: int) -> AnimeEntry | None:
         with self._connect() as conn:
@@ -341,6 +467,7 @@ _ROW_COLUMNS = [
     "studios",
     "genres",
     "score",
+    "user_score",
     "episodes",
     "status",
     "user_status",
@@ -407,6 +534,7 @@ def _extraction_to_row(extraction: dict[str, Any]) -> dict[str, Any]:
         "studios": ",".join(studios) if studios else None,
         "genres": json.dumps(list(genres)) if genres else None,
         "score": extraction.get("score"),
+        "user_score": extraction.get("user_score"),
         "episodes": extraction.get("episodes"),
         "status": extraction.get("status"),
         "user_status": extraction.get("user_status", "Plan to Watch"),
@@ -435,6 +563,7 @@ def _row_to_entry(row: sqlite3.Row) -> AnimeEntry:
         studios=_split_csv(row["studios"]),
         genres=_parse_json_list(row["genres"]),
         score=row["score"],
+        user_score=row["user_score"],
         episodes=row["episodes"],
         status=row["status"],
         user_status=row["user_status"],

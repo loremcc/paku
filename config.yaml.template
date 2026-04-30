@@ -18,16 +18,17 @@ outputs:
   review_queue: ./output/review_queue.json
   checkpoint: ./output/.paku_checkpoint
 
-# ─── Google Cloud Vision OCR (Phase 0 engine) ──────────────────────────────────
+# ─── Google Cloud Vision OCR ───────────────────────────────────────────────────
 #
-# Auth: set ONE of the two options below. env var takes priority over api_key.
+# Auth: set ONE of the three options below. Priority: env var > credentials_file > api_key.
 #
-# Option 1 (recommended): service account JSON
-#   Set the environment variable before running paku:
-#     export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
-#   Leave api_key blank when using this option.
+# Option 1: env var (CI/CD, Docker)
+#   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 #
-# Option 2: API key (simpler for personal use)
+# Option 2 (recommended for local use): credentials_file in config.yaml
+#   Set credentials_file to the absolute path of your service account JSON.
+#
+# Option 3: API key (simpler for personal use)
 #   Create an API key in Google Cloud Console → APIs & Services → Credentials.
 #   Enable "Cloud Vision API" for the key.
 #   Free tier: 1,000 image annotations/month.
@@ -36,27 +37,23 @@ outputs:
 #   pip install "paku[ocr]"   or   pip install google-cloud-vision>=3.7
 
 google_vision:
-  api_key: ""  # leave blank if using GOOGLE_APPLICATION_CREDENTIALS env var
+  credentials_file: ""  # absolute path to service account JSON (Option 2)
+  api_key: ""           # API key string (Option 3)
 
-# ─── Ollama VLM (--smart flag re-run engine) ──────────────────────────────────
+# ─── Ollama ────────────────────────────────────────────────────────────────────
 #
-# Used only when `paku digest --smart` is passed AND fast-path confidence < 0.4.
-# Requires a running Ollama server with the custom model loaded.
-# Build the model: ollama create gemma4-paku -f Modelfile.paku
-# No API keys involved — just a LAN IP and model name.
+# Two models, same host. Install Ollama and pull both:
+#   ollama pull gemma4:26b                       # text LLM for recommendations
+#   ollama create gemma4-paku -f Modelfile.paku  # VLM for smart OCR re-run
+#
+# The VLM is used only when `paku digest --smart` is passed AND confidence < 0.4.
+# The text LLM powers the dashboard Recommendations tab (For You section).
+# No API keys involved — just a LAN IP and model names.
 
 ollama:
   base_url: "http://192.168.1.114:11434"   # remote Ollama host on home network
-  model: "gemma4-paku:latest"               # custom model built from Modelfile.paku
-
-# ─── LangExtract / --smart flag ────────────────────────────────────────────────
-#
-# Only used when `paku digest --smart` is passed explicitly.
-# Never invoked in the default path.
-
-langextract:
-  api_key: ""           # Gemini or OpenAI API key
-  model_id: gemini-2.5-flash
+  ocr_model: "gemma4-paku:latest"           # VLM built from Modelfile.paku (system prompt, no thinking)
+  recs_model: "gemma4:26b"                  # text-only LLM for semantic recommendations
 
 # ─── AniList ───────────────────────────────────────────────────────────────────
 #

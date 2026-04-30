@@ -92,15 +92,3 @@ class TestValidateConfig:
             with pytest.raises(ValueError, match=missing_key):
                 validate_config(config)
 
-    def test_passes_when_langextract_not_configured(self):
-        config = load_config()
-        validate_config(config)  # api_key is empty — no error
-
-    def test_raises_when_langextract_api_key_set_but_model_missing(self, tmp_path):
-        cfg_file = tmp_path / "config.yaml"
-        cfg_file.write_text(
-            yaml.dump({"langextract": {"api_key": "key123", "model_id": ""}})
-        )
-        config = load_config(cfg_file)
-        with pytest.raises(ValueError, match="model_id"):
-            validate_config(config)

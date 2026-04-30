@@ -8,16 +8,21 @@
 <link href="https://fonts.googleapis.com/css2?family=Maven+Pro:wght@500;600;700;800&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --paku-bg: #15171c;
-    --paku-surface: #1d2028;
-    --paku-surface-2: #262a35;
-    --paku-border: #32374a;
-    --paku-primary: #3c5ea8;
-    --paku-primary-2: #2a4680;
-    --paku-accent: #f2a4c3;
+    --paku-bg: #111318;
+    --paku-surface: #191c24;
+    --paku-surface-2: #222636;
+    --paku-border: #2d3247;
+    --paku-primary: #4a6cc7;
+    --paku-primary-2: #3957a8;
+    --paku-accent: #f0a0c0;
     --paku-accent-2: #e07fa8;
-    --paku-text: #eef0f6;
-    --paku-text-dim: #9aa1b5;
+    --paku-text: #edf0f8;
+    --paku-text-dim: #8f96b0;
+    --green: #5ec29e;
+    --blue: #64a8f0;
+    --amber: #e5b84e;
+    --red: #e0646a;
+    --gray: #6b7187;
   }
   html, body { background: var(--paku-bg); color: var(--paku-text); font-family: 'Nunito', sans-serif; }
   h1,h2,h3,h4 { font-family: 'Maven Pro', sans-serif; letter-spacing: -0.01em; }
@@ -47,6 +52,11 @@
   }
   .chip-accent { background: rgba(242,164,195,0.15); color: var(--paku-accent); border-color: rgba(242,164,195,0.35); }
   .chip-warn { background: rgba(234,179,8,0.15); color: #facc15; border-color: rgba(234,179,8,0.4); }
+  .chip-green { background: rgba(94,194,158,0.15); color: var(--green); border-color: rgba(94,194,158,0.35); }
+  .chip-blue { background: rgba(100,168,240,0.15); color: var(--blue); border-color: rgba(100,168,240,0.35); }
+  .chip-amber { background: rgba(229,184,78,0.15); color: var(--amber); border-color: rgba(229,184,78,0.35); }
+  .chip-red { background: rgba(224,100,106,0.15); color: var(--red); border-color: rgba(224,100,106,0.35); }
+  .chip-gray { background: rgba(107,113,135,0.15); color: var(--gray); border-color: rgba(107,113,135,0.25); }
   .card {
     background: var(--paku-surface); border: 1px solid var(--paku-border);
     border-radius: 0.6rem; overflow: hidden; transition: all .15s;
@@ -75,19 +85,28 @@
   }
   .bar { height: 8px; background: var(--paku-surface-2); border-radius: 4px; overflow: hidden; }
   .bar-fill { height: 100%; background: var(--paku-accent); }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
+  }
 </style>
 </head>
 <body>
 <header class="sticky top-0 z-40 surface border-b">
   <div class="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
     <div class="flex items-center gap-3">
-      <div class="w-8 h-8 rounded-lg" style="background: var(--paku-accent);"></div>
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="2" width="28" height="28" rx="7" fill="var(--paku-accent)" opacity="0.15"/>
+        <rect x="8" y="8" width="16" height="16" rx="4" fill="var(--paku-accent)" opacity="0.35"/>
+        <rect x="11" y="11" width="10" height="10" rx="3" fill="var(--paku-accent)"/>
+      </svg>
       <h1 class="text-2xl font-bold">paku</h1>
-      <span class="text-xs" style="color: var(--paku-text-dim);">dashboard · v1.0</span>
+      <span class="text-xs" style="color: var(--paku-text-dim);">dashboard · v1.1</span>
     </div>
     <nav class="flex gap-1" id="tabs">
       <button class="tab-btn" data-tab="dashboard">Dashboard</button>
       <button class="tab-btn" data-tab="collection">Collection</button>
+      <button class="tab-btn" data-tab="recommendations">Recs</button>
       <button class="tab-btn" data-tab="add">Add</button>
       <button class="tab-btn" data-tab="review">Review</button>
     </nav>
@@ -153,6 +172,47 @@
       <p id="recommendations-empty" class="hidden text-sm text-center py-6" style="color: var(--paku-text-dim);">
         No recommendations available right now.
       </p>
+    </div>
+  </section>
+
+  <!-- RECOMMENDATIONS TAB -->
+  <section id="tab-recommendations" class="tab-panel hidden">
+    <div class="flex items-baseline gap-4 mb-6 flex-wrap">
+      <h2 class="text-3xl font-bold mr-auto">Recommendations</h2>
+      <button class="btn btn-accent" id="recs-refresh">Refresh</button>
+    </div>
+
+    <!-- Personalized (Ollama) -->
+    <div class="mb-8">
+      <div class="flex items-baseline gap-3 mb-4">
+        <h3 class="text-xl font-semibold">For You</h3>
+        <span class="text-xs" style="color: var(--paku-text-dim);">personalized from your collection</span>
+      </div>
+      <div id="recs-personalized" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-4">
+        <p class="col-span-full text-sm" style="color: var(--paku-text-dim);">Loading…</p>
+      </div>
+      <p id="recs-personalized-empty" class="hidden text-sm text-center py-6" style="color: var(--paku-text-dim);">
+        Add some titles to your collection to unlock personalized recommendations.
+      </p>
+      <p id="recs-personalized-error" class="hidden text-sm text-center py-6" style="color:#f87171">
+        Ollama is not configured or unreachable. Set up ollama in config.yaml.
+      </p>
+    </div>
+
+    <!-- AniList graph-based -->
+    <div>
+      <div class="flex items-baseline gap-3 mb-4">
+        <h3 class="text-xl font-semibold">Similar to…</h3>
+        <span class="text-xs" style="color: var(--paku-text-dim);">AniList community picks</span>
+      </div>
+      <div class="flex items-center gap-3 mb-4">
+        <label class="text-sm" style="color: var(--paku-text-dim);">Seed title:</label>
+        <select id="recs-seed" class="w-64"></select>
+        <button class="btn btn-ghost" id="recs-seed-load">Load</button>
+      </div>
+      <div id="recs-similar" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-4">
+        <p class="col-span-full text-sm" style="color: var(--paku-text-dim);">Select a seed title to see similar anime.</p>
+      </div>
     </div>
   </section>
 
@@ -252,11 +312,14 @@ const api = {
   },
   async recommendations(id) {
     return (await fetch('/api/collection/' + id + '/recommendations')).json();
-  }
+  },
+  async personalizedRecs() {
+    return (await fetch('/api/recommendations')).json();
+  },
 };
 
 // --- Tab routing ---
-const tabs = ['dashboard', 'collection', 'add', 'review'];
+const tabs = ['dashboard', 'collection', 'recommendations', 'add', 'review'];
 function showTab(name) {
   if (!tabs.includes(name)) name = 'dashboard';
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
@@ -265,6 +328,7 @@ function showTab(name) {
   location.hash = name;
   if (name === 'dashboard') loadDashboard();
   if (name === 'collection') loadCollection();
+  if (name === 'recommendations') loadRecommendationsTab();
   if (name === 'review') loadReview();
 }
 document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
@@ -378,6 +442,127 @@ async function loadRecommendations(items) {
   }
 }
 
+async function loadRecommendationsTab() {
+  // Populate seed selector from collection
+  const data = await api.collection({per_page: 200});
+  const withAniList = data.items.filter(e => e.anilist_id != null);
+  const sel = document.getElementById('recs-seed');
+  sel.innerHTML = withAniList.map(e =>
+    `<option value="${e.id}">${escapeHtml(e.canonical_title || e.raw_title)}</option>`
+  ).join('');
+  if (!sel.value && withAniList.length) sel.value = withAniList[0].id;
+
+  loadPersonalizedRecs();
+  loadSimilarRecs();
+}
+
+async function loadPersonalizedRecs() {
+  const grid = document.getElementById('recs-personalized');
+  const empty = document.getElementById('recs-personalized-empty');
+  const err = document.getElementById('recs-personalized-error');
+  grid.innerHTML = skeletonHTML(6);
+  empty.classList.add('hidden');
+  err.classList.add('hidden');
+  try {
+    const data = await api.personalizedRecs();
+    if (data.reason === 'empty_collection') {
+      grid.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    if (data.reason === 'ollama_not_configured' || data.reason === 'ollama_error') {
+      grid.innerHTML = '';
+      err.classList.remove('hidden');
+      return;
+    }
+    const recs = (data.recommendations || []).slice(0, 6);
+    if (!recs.length) {
+      grid.innerHTML = '<p class="col-span-full text-sm" style="color: var(--paku-text-dim);">No suggestions yet. Try refreshing.</p>';
+      return;
+    }
+    grid.innerHTML = recs.map(r => recTabCardHTML(r, 'personalized')).join('');
+    bindRecAddButtons(grid);
+  } catch {
+    grid.innerHTML = '';
+    err.classList.remove('hidden');
+  }
+}
+
+async function loadSimilarRecs() {
+  const grid = document.getElementById('recs-similar');
+  const sel = document.getElementById('recs-seed');
+  if (!sel.value) return;
+  grid.innerHTML = skeletonHTML(6);
+  try {
+    const data = await api.recommendations(parseInt(sel.value));
+    const recs = (data.recommendations || []).slice(0, 6);
+    if (!recs.length) {
+      grid.innerHTML = '<p class="col-span-full text-sm" style="color: var(--paku-text-dim);">No similar titles found.</p>';
+      return;
+    }
+    grid.innerHTML = recs.map(r => recTabCardHTML(r, 'similar')).join('');
+    bindRecAddButtons(grid);
+  } catch {
+    grid.innerHTML = '<p class="col-span-full text-sm" style="color:#f87171">Failed to load similar titles.</p>';
+  }
+}
+
+function recTabCardHTML(r, source) {
+  const title = r.english || r.romaji || 'Untitled';
+  const cover = r.cover_image || '';
+  const coverStyle = cover ? `background-image:url('${cover}')` : '';
+  const score = r.average_score != null
+    ? `<span class="chip">★ ${(r.average_score / 10).toFixed(1)}</span>` : '';
+  const fmt = r.media_format ? `<span class="chip">${r.media_format}</span>` : '';
+  const reason = source === 'personalized'
+    ? '<span class="chip chip-accent">For you</span>'
+    : '<span class="chip chip-accent">Similar</span>';
+  const genres = (r.genres || []).slice(0, 2).map(g => `<span class="chip">${g}</span>`).join('');
+  const action = r.saved
+    ? '<span class="chip chip-accent">saved</span>'
+    : `<button class="btn btn-accent w-full" data-add-rec="${r.anilist_id}">Add</button>`;
+  return `
+    <div class="card" style="cursor:default">
+      <div class="card-cover" style="${coverStyle}"></div>
+      <div class="p-3 flex-1 flex flex-col gap-2">
+        <div class="font-semibold text-sm leading-tight line-clamp-2" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+        <div class="flex flex-wrap gap-1">${fmt}${score}${reason}</div>
+        <div class="flex flex-wrap gap-1">${genres}</div>
+        <div class="mt-auto pt-1">${action}</div>
+      </div>
+    </div>
+  `;
+}
+
+function skeletonHTML(n) {
+  return Array.from({length: n}, () => `
+    <div class="card" style="cursor:default">
+      <div class="card-cover" style="background: var(--paku-surface-2); animation: pulse 1.5s infinite;"></div>
+      <div class="p-3 space-y-2">
+        <div class="h-4 rounded" style="background: var(--paku-surface-2); animation: pulse 1.5s infinite; width: 80%;"></div>
+        <div class="h-3 rounded" style="background: var(--paku-surface-2); animation: pulse 1.5s infinite; width: 50%;"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function bindRecAddButtons(grid) {
+  grid.querySelectorAll('button[data-add-rec]').forEach(b => b.addEventListener('click', async () => {
+    b.disabled = true; b.textContent = '…';
+    const card = b.closest('.card');
+    try {
+      await api.searchAdd(parseInt(b.dataset.addRec));
+      if (card) {
+        card.style.transition = 'opacity .25s';
+        card.style.opacity = '0';
+        setTimeout(() => card.remove(), 250);
+      }
+    } catch {
+      b.disabled = false; b.textContent = 'Retry';
+    }
+  }));
+}
+
 function recCardHTML(r) {
   const title = r.english || r.romaji || 'Untitled';
   const cover = r.cover_image || '';
@@ -446,7 +631,7 @@ function cardHTML(e) {
       <div class="p-3 flex-1 flex flex-col gap-2">
         <div class="font-semibold text-sm leading-tight line-clamp-2" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
         <div class="flex flex-wrap gap-1 mt-auto">${fmt}${score}${rev}
-          <span class="chip chip-accent">${e.user_status}</span>
+          <span class="chip ${statusChipClass(e.user_status)}">${e.user_status}</span>
         </div>
       </div>
     </div>
@@ -611,10 +796,23 @@ document.getElementById('search-form').addEventListener('submit', async e => {
 });
 
 // --- Utils ---
+function statusChipClass(status) {
+  switch (status) {
+    case 'Completed': return 'chip-green';
+    case 'Watching': return 'chip-blue';
+    case 'Plan to Watch': return 'chip-amber';
+    case 'Dropped': return 'chip-red';
+    case 'On Hold': return 'chip-gray';
+    default: return 'chip';
+  }
+}
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c =>
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 }
+
+document.getElementById('recs-refresh').addEventListener('click', () => loadPersonalizedRecs());
+document.getElementById('recs-seed-load').addEventListener('click', () => loadSimilarRecs());
 
 // --- Boot ---
 showTab(location.hash.slice(1) || 'dashboard');

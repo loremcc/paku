@@ -24,10 +24,6 @@ DEFAULT_CONFIG: dict = {
         "review_queue": "./output/review_queue.json",
         "checkpoint": "./output/.paku_checkpoint",
     },
-    "langextract": {
-        "api_key": "",
-        "model_id": "gemini-2.5-flash",
-    },
 }
 
 
@@ -73,8 +69,3 @@ def validate_config(config: dict) -> None:
                 raise ValueError(
                     f"notion.{db_key} is required when notion.token is set. Add it to config.yaml."
                 )
-
-    langextract = config.get("langextract", {})
-    if langextract.get("api_key", ""):
-        if not langextract.get("model_id", ""):
-            raise ValueError("langextract.model_id is required when langextract.api_key is set.")

@@ -357,3 +357,65 @@ class TestHasAnilistId:
     def test_has_anilist_id_ignores_null_rows(self, db: Database) -> None:
         db.insert_or_update_anime(_extraction(anilist_id=None, canonical="No Match"))
         assert db.has_anilist_id(0) is False
+
+
+class TestBulkUpdateUserStatus:
+    def test_updates_status(self, db: Database) -> None:
+        db.insert_or_update_anime(_extraction(anilist_id=1, canonical="Test"))
+        entries = db.list_anime().items
+        assert entries[0].user_status == "Plan to Watch"
+        count = db.bulk_update_user_status(
+            [{"id": entries[0].id, "user_status": "Completed"}]
+        )
+        assert count == 1
+        updated = db.get_anime(entries[0].id)
+        assert updated is not None
+        assert updated.user_status == "Completed"
+
+    def test_updates_score(self, db: Database) -> None:
+        db.insert_or_update_anime(_extraction(anilist_id=2, canonical="Test2"))
+        entries = db.list_anime().items
+        db.bulk_update_user_status(
+            [{"id": entries[0].id, "user_score": 8.5}]
+        )
+        updated = db.get_anime(entries[0].id)
+        assert updated is not None
+        assert updated.user_score == 8.5
+
+    def test_updates_both(self, db: Database) -> None:
+        db.insert_or_update_anime(_extraction(anilist_id=3, canonical="Test3"))
+        entries = db.list_anime().items
+        db.bulk_update_user_status(
+            [{"id": entries[0].id, "user_status": "Dropped", "user_score": 4.0}]
+        )
+        updated = db.get_anime(entries[0].id)
+        assert updated is not None
+        assert updated.user_status == "Dropped"
+        assert updated.user_score == 4.0
+
+
+class TestMergeNotionImport:
+    def test_merge_updates_matched_by_title(self, db: Database) -> None:
+        db.insert_or_update_anime(_extraction(anilist_id=100, canonical="Frieren"))
+        rows = [{"english_title": "Frieren", "user_status": "Completed"}]
+        stats = db.merge_notion_import(rows, dry_run=False)
+        assert stats["matched"] == 1
+        assert stats["updated"] == 1
+        # Verify user_status was updated
+        entries = db.list_anime().items
+        assert entries[0].user_status == "Completed"
+
+    def test_merge_creates_unmatched(self, db: Database) -> None:
+        rows = [{"english_title": "Brand New Anime", "user_status": "Watching"}]
+        stats = db.merge_notion_import(rows, dry_run=False)
+        assert stats["created"] == 1
+        entries = db.list_anime().items
+        assert entries[0].canonical_title == "Brand New Anime"
+        assert entries[0].extraction_mode == "notion_import"
+
+    def test_merge_dry_run_does_not_write(self, db: Database) -> None:
+        rows = [{"english_title": "Frieren", "user_status": "Completed"}]
+        stats = db.merge_notion_import(rows, dry_run=True)
+        assert stats["matched"] == 0  # DB is empty, no match
+        assert db.list_anime().total == 0  # nothing written
+

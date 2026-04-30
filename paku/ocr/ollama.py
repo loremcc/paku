@@ -33,7 +33,7 @@ class OllamaVLMEngine(OCREngine):
     def __init__(self, config: dict, logger: logging.Logger) -> None:
         ollama_cfg = config.get("ollama", {})
         self._base_url = ollama_cfg.get("base_url", "http://192.168.1.114:11434").rstrip("/")
-        self._model = ollama_cfg.get("model", "gemma4-paku:latest")
+        self._model = ollama_cfg.get("ocr_model") or ollama_cfg.get("model", "gemma4-paku:latest")
         self._logger = logger
         self._health_cached: bool | None = None
 
